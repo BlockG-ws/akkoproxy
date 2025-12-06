@@ -5,7 +5,7 @@ use axum::{
     body::Body,
     extract::{Request, State},
     http::{header, HeaderMap, StatusCode, Uri},
-    response::{IntoResponse, Response, Redirect},
+    response::{IntoResponse, Response},
 };
 use bytes::Bytes;
 use std::sync::Arc;
@@ -77,7 +77,11 @@ pub async fn proxy_handler(
     
     // Handle root path with redirect
     if path == "/" {
-        return Ok(Redirect::permanent("https://github.com/BlockG-ws/akkoproxy").into_response());
+        return Ok(Response::builder()
+            .status(StatusCode::MOVED_PERMANENTLY)
+            .header(header::LOCATION, "https://github.com/BlockG-ws/akkoproxy")
+            .body(Body::empty())
+            .unwrap());
     }
     
     // Only handle /media and /proxy paths
