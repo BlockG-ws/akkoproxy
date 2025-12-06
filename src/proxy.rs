@@ -12,6 +12,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
+/// Headers that should not be copied from upstream responses
+const EXCLUDED_HEADERS: &[header::HeaderName] = &[
+    header::CONTENT_LENGTH,
+    header::TRANSFER_ENCODING,
+    header::CONNECTION,
+];
+
 /// Application state shared across handlers
 #[derive(Clone)]
 pub struct AppState {
@@ -166,12 +173,15 @@ pub async fn proxy_handler(
     // Check if this is an image and conversion is requested
     // Skip conversion if upstream format already satisfies the desired format
     let upstream_format = format_from_content_type(&content_type);
-    let should_convert = is_image_content_type(&content_type) 
-        && desired_format != OutputFormat::Original 
-        && body_bytes.len() <= state.config.cache.max_item_size as usize
-        && !upstream_format.map(|uf| format_satisfies(uf, desired_format)).unwrap_or(false);
+    let needs_conversion = should_convert_image(
+        &content_type,
+        upstream_format,
+        desired_format,
+        body_bytes.len(),
+        state.config.cache.max_item_size as usize,
+    );
     
-    let (final_data, final_content_type) = if should_convert {
+    let (final_data, final_content_type) = if needs_conversion {
         debug!("Converting image to {:?}", desired_format);
         
         match state.image_converter.convert(&body_bytes, desired_format) {
@@ -215,6 +225,33 @@ pub async fn proxy_handler(
     ))
 }
 
+/// Determine if image conversion is needed
+fn should_convert_image(
+    content_type: &str,
+    upstream_format: Option<OutputFormat>,
+    desired_format: OutputFormat,
+    content_size: usize,
+    max_size: usize,
+) -> bool {
+    // Must be an image
+    if !is_image_content_type(content_type) {
+        return false;
+    }
+    
+    // Must not be requesting original format
+    if desired_format == OutputFormat::Original {
+        return false;
+    }
+    
+    // Must be within size limits
+    if content_size > max_size {
+        return false;
+    }
+    
+    // Skip conversion if upstream format already satisfies desired format
+    !matches!(upstream_format, Some(fmt) if format_satisfies(fmt, desired_format))
+}
+
 /// Build HTTP response with appropriate headers
 fn build_response(
     data: Bytes, 
@@ -228,10 +265,8 @@ fn build_response(
     // Add upstream headers if configured
     if let Some(headers) = upstream_headers {
         for (key, value) in headers.iter() {
-            // Skip some headers that shouldn't be copied
-            if key != header::CONTENT_LENGTH 
-                && key != header::TRANSFER_ENCODING 
-                && key != header::CONNECTION {
+            // Skip headers that shouldn't be copied
+            if !EXCLUDED_HEADERS.contains(key) {
                 builder = builder.header(key, value);
             }
         }
