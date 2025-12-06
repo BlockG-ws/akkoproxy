@@ -1,11 +1,11 @@
 [package]
-name = "akkoma-media-proxy"
+name = "akkoproxy"
 version = "0.1.0"
 edition = "2021"
-authors = ["Akkoma Media Proxy Contributors"]
+authors = ["Akkoproxy Contributors"]
 description = "A fast caching and optimization media proxy for Akkoma/Pleroma"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/BlockG-ws/fantastic-computing-machine"
+repository = "https://github.com/BlockG-ws/akkoproxy"
 
 [dependencies]
 # Async runtime
@@ -39,6 +39,7 @@ bytes = "1.7"
 futures = "0.3"
 http-body-util = "0.1"
 url = "2.5"
+clap = { version = "4.5", features = ["derive"] }
 
 [profile.release]
 opt-level = 3

@@ -1,4 +1,4 @@
-# Example configuration for Akkoma Media Proxy
+# Example configuration for Akkoproxy
 # Copy this file to config.toml and adjust the settings
 
 [upstream]
@@ -12,8 +12,11 @@ timeout = 30
 # Address to bind the server to (default: 0.0.0.0:3000)
 bind = "0.0.0.0:3000"
 
-# Custom Via header value (default: akkoma-media-proxy/{version})
-via_header = "akkoma-media-proxy/0.1.0"
+# Custom Via header value (default: akkoproxy/{version})
+via_header = "akkoproxy/0.1.0"
+
+# Preserve all headers from upstream when responding (default: false)
+preserve_upstream_headers = false
 
 [cache]
 # Maximum number of cached items (default: 10000)
