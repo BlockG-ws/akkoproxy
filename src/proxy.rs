@@ -23,11 +23,16 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(config: Config) -> Self {
+        debug!("Initializing AppState with config: bind={}, upstream={}", 
+               config.server.bind, config.upstream.url);
+        
         let cache = ResponseCache::new(
             config.cache.max_capacity,
             Duration::from_secs(config.cache.ttl),
             config.cache.max_item_size,
         );
+        debug!("Cache initialized: max_capacity={}, ttl={}s, max_item_size={} bytes",
+               config.cache.max_capacity, config.cache.ttl, config.cache.max_item_size);
         
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.upstream.timeout))
@@ -36,6 +41,8 @@ impl AppState {
             .pool_idle_timeout(Duration::from_secs(90))
             .build()
             .expect("Failed to create HTTP client");
+        debug!("HTTP client configured: timeout={}s, user_agent=akkoma-media-proxy/{}",
+               config.upstream.timeout, env!("CARGO_PKG_VERSION"));
         
         let image_converter = Arc::new(ImageConverter::new(
             config.image.quality,
@@ -43,6 +50,9 @@ impl AppState {
             config.image.enable_avif,
             config.image.enable_webp,
         ));
+        debug!("Image converter initialized: quality={}, max_dimension={}, avif={}, webp={}",
+               config.image.quality, config.image.max_dimension, 
+               config.image.enable_avif, config.image.enable_webp);
         
         Self {
             config: Arc::new(config),

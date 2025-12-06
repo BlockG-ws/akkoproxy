@@ -137,6 +137,19 @@ impl ImageConverter {
 }
 
 /// Parse Accept header to determine preferred image format
+/// 
+/// # Example
+/// For the Accept header: `image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5`
+/// 
+/// With default config (enable_avif=true, enable_webp=true):
+/// - image/avif has quality 1.0 (default when not specified)
+/// - image/webp has quality 1.0 (default when not specified)
+/// - image/png has quality 1.0 (default when not specified)
+/// - image/svg+xml is not supported (ignored)
+/// - image/* has quality 0.8
+/// - */* has quality 0.5
+/// 
+/// Result: Returns Avif (first format with highest quality 1.0)
 pub fn parse_accept_header(accept: &str, enable_avif: bool, enable_webp: bool) -> OutputFormat {
     // Parse media types and their quality values
     let mut formats: Vec<(OutputFormat, f32)> = Vec::new();
@@ -171,7 +184,8 @@ pub fn parse_accept_header(accept: &str, enable_avif: bool, enable_webp: bool) -
     }
     
     // Sort by quality (descending)
-    formats.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    // Use unwrap_or to handle NaN values gracefully (treat as equal)
+    formats.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     
     // Return the highest quality format, or Original if none found
     formats.first()
