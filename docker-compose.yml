@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  akkoma-media-proxy:
+    image: ghcr.io/blockg-ws/akkoma-media-proxy:latest
+    container_name: akkoma-media-proxy
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Option 1: Use environment variable for simple setup
+      - UPSTREAM_URL=https://your-akkoma-instance.com
+      
+      # Option 2: Use configuration file (comment out UPSTREAM_URL above)
+      # - CONFIG_PATH=/app/config.toml
+      
+      # Logging
+      - RUST_LOG=info
+    
+    # Option 2 configuration: mount config file
+    # volumes:
+    #   - ./config.toml:/app/config.toml:ro
+    
+    # Optional: add health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp

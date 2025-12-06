@@ -1,0 +1,39 @@
+# Example configuration for Akkoma Media Proxy
+# Copy this file to config.toml and adjust the settings
+
+[upstream]
+# Upstream Akkoma/Pleroma server URL (required)
+url = "https://akkoma.example.com"
+
+# Timeout for upstream requests in seconds (default: 30)
+timeout = 30
+
+[server]
+# Address to bind the server to (default: 0.0.0.0:3000)
+bind = "0.0.0.0:3000"
+
+# Custom Via header value (default: akkoma-media-proxy/{version})
+via_header = "akkoma-media-proxy/0.1.0"
+
+[cache]
+# Maximum number of cached items (default: 10000)
+max_capacity = 10000
+
+# Time to live for cached items in seconds (default: 3600)
+ttl = 3600
+
+# Maximum size of a cached item in bytes (default: 10485760, 10MB)
+max_item_size = 10485760
+
+[image]
+# Enable AVIF conversion (default: true)
+enable_avif = true
+
+# Enable WebP conversion (default: true)
+enable_webp = true
+
+# JPEG quality for conversions, 1-100 (default: 85)
+quality = 85
+
+# Maximum image dimensions for processing (default: 4096)
+max_dimension = 4096
