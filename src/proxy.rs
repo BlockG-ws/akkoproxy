@@ -58,7 +58,7 @@ pub async fn proxy_handler(
     State(state): State<AppState>,
     uri: Uri,
     headers: HeaderMap,
-    request: Request,
+    _request: Request,
 ) -> Result<Response, ProxyError> {
     let path = uri.path();
     let query = uri.query().unwrap_or("");

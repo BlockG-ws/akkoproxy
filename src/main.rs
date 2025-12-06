@@ -11,7 +11,7 @@ use axum::{
 use std::env;
 use std::path::PathBuf;
 use tower_http::trace::TraceLayer;
-use tracing::{info, Level};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::Config;

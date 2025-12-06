@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use bytes::Bytes;
-use image::{DynamicImage, ImageFormat};
+use image::{DynamicImage, GenericImageView, ImageFormat};
 use std::io::Cursor;
 
 /// Supported image output formats
@@ -150,11 +150,7 @@ pub fn parse_accept_header(accept: &str, enable_avif: bool, enable_webp: bool) -
         let quality = segments
             .find_map(|s| {
                 let s = s.trim();
-                if s.starts_with("q=") {
-                    s[2..].parse::<f32>().ok()
-                } else {
-                    None
-                }
+                s.strip_prefix("q=")?.parse::<f32>().ok()
             })
             .unwrap_or(1.0);
         

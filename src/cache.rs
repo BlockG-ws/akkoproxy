@@ -31,7 +31,7 @@ pub struct ResponseCache {
 
 impl ResponseCache {
     /// Create a new response cache
-    pub fn new(max_capacity: u64, ttl: Duration, max_item_size: u64) -> Self {
+    pub fn new(max_capacity: u64, ttl: Duration, _max_item_size: u64) -> Self {
         let cache = Cache::builder()
             .max_capacity(max_capacity)
             .time_to_live(ttl)
