@@ -1,6 +1,6 @@
 use crate::cache::{CacheKey, CachedResponse, ResponseCache};
 use crate::config::Config;
-use crate::image::{is_image_content_type, parse_accept_header, ImageConverter, OutputFormat};
+use crate::image::{is_image_content_type, parse_accept_header, format_from_content_type, format_satisfies, ImageConverter, OutputFormat};
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -11,6 +11,13 @@ use bytes::Bytes;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
+
+/// Headers that should not be copied from upstream responses
+const EXCLUDED_HEADERS: &[header::HeaderName] = &[
+    header::CONTENT_LENGTH,
+    header::TRANSFER_ENCODING,
+    header::CONNECTION,
+];
 
 /// Application state shared across handlers
 #[derive(Clone)]
@@ -36,12 +43,12 @@ impl AppState {
         
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.upstream.timeout))
-            .user_agent(format!("akkoma-media-proxy/{}", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!("akkoproxy/{}", env!("CARGO_PKG_VERSION")))
             .pool_max_idle_per_host(10)
             .pool_idle_timeout(Duration::from_secs(90))
             .build()
             .expect("Failed to create HTTP client");
-        debug!("HTTP client configured: timeout={}s, user_agent=akkoma-media-proxy/{}",
+        debug!("HTTP client configured: timeout={}s, user_agent=akkoproxy/{}",
                config.upstream.timeout, env!("CARGO_PKG_VERSION"));
         
         let image_converter = Arc::new(ImageConverter::new(
@@ -74,6 +81,15 @@ pub async fn proxy_handler(
     let query = uri.query().unwrap_or("");
     
     debug!("Proxying request: {} {}", path, query);
+    
+    // Handle root path with redirect
+    if path == "/" {
+        return Ok(Response::builder()
+            .status(StatusCode::MOVED_PERMANENTLY)
+            .header(header::LOCATION, "https://github.com/BlockG-ws/akkoproxy")
+            .body(Body::empty())
+            .unwrap());
+    }
     
     // Only handle /media and /proxy paths
     if !path.starts_with("/media") && !path.starts_with("/proxy") {
@@ -109,7 +125,12 @@ pub async fn proxy_handler(
     // Check cache first
     if let Some(cached) = state.cache.get(&cache_key).await {
         debug!("Cache hit for {}", path);
-        return Ok(build_response(cached.data.clone(), &cached.content_type, &state.config.server.via_header));
+        return Ok(build_response(
+            cached.data.clone(), 
+            &cached.content_type, 
+            &state.config.server.via_header, 
+            None,
+        ));
     }
     
     debug!("Cache miss for {}, fetching from upstream: {}", path, upstream_url);
@@ -130,6 +151,13 @@ pub async fn proxy_handler(
         return Err(ProxyError::UpstreamStatusError(status.as_u16()));
     }
     
+    // Preserve upstream headers if configured
+    let upstream_headers = if state.config.server.preserve_upstream_headers {
+        Some(response.headers().clone())
+    } else {
+        None
+    };
+    
     let content_type = response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -143,10 +171,17 @@ pub async fn proxy_handler(
     })?;
     
     // Check if this is an image and conversion is requested
-    let (final_data, final_content_type) = if is_image_content_type(&content_type) 
-        && desired_format != OutputFormat::Original 
-        && body_bytes.len() <= state.config.cache.max_item_size as usize {
-        
+    // Skip conversion if upstream format already satisfies the desired format
+    let upstream_format = format_from_content_type(&content_type);
+    let needs_conversion = should_convert_image(
+        &content_type,
+        upstream_format,
+        desired_format,
+        body_bytes.len(),
+        state.config.cache.max_item_size as usize,
+    );
+    
+    let (final_data, final_content_type) = if needs_conversion {
         debug!("Converting image to {:?}", desired_format);
         
         match state.image_converter.convert(&body_bytes, desired_format) {
@@ -160,8 +195,13 @@ pub async fn proxy_handler(
             }
         }
     } else {
-        debug!("Not converting: is_image={}, format={:?}, size={}", 
-               is_image_content_type(&content_type), desired_format, body_bytes.len());
+        if is_image_content_type(&content_type) && upstream_format.is_some() {
+            debug!("Skipping conversion: upstream format {:?} already satisfies desired format {:?}", 
+                   upstream_format, desired_format);
+        } else {
+            debug!("Not converting: is_image={}, format={:?}, size={}", 
+                   is_image_content_type(&content_type), desired_format, body_bytes.len());
+        }
         (body_bytes, content_type)
     };
     
@@ -177,13 +217,63 @@ pub async fn proxy_handler(
         debug!("Response too large to cache: {} bytes", final_data.len());
     }
     
-    Ok(build_response(final_data, &final_content_type, &state.config.server.via_header))
+    Ok(build_response(
+        final_data, 
+        &final_content_type, 
+        &state.config.server.via_header, 
+        upstream_headers.as_ref(),
+    ))
+}
+
+/// Determine if image conversion is needed
+fn should_convert_image(
+    content_type: &str,
+    upstream_format: Option<OutputFormat>,
+    desired_format: OutputFormat,
+    content_size: usize,
+    max_size: usize,
+) -> bool {
+    // Must be an image
+    if !is_image_content_type(content_type) {
+        return false;
+    }
+    
+    // Must not be requesting original format
+    if desired_format == OutputFormat::Original {
+        return false;
+    }
+    
+    // Must be within size limits
+    if content_size > max_size {
+        return false;
+    }
+    
+    // Skip conversion if upstream format already satisfies desired format
+    !matches!(upstream_format, Some(fmt) if format_satisfies(fmt, desired_format))
 }
 
 /// Build HTTP response with appropriate headers
-fn build_response(data: Bytes, content_type: &str, via_header: &str) -> Response {
-    Response::builder()
-        .status(StatusCode::OK)
+fn build_response(
+    data: Bytes, 
+    content_type: &str, 
+    via_header: &str,
+    upstream_headers: Option<&HeaderMap>,
+) -> Response {
+    let mut builder = Response::builder()
+        .status(StatusCode::OK);
+    
+    // Add upstream headers if configured
+    if let Some(headers) = upstream_headers {
+        for (key, value) in headers.iter() {
+            // Skip headers that shouldn't be copied
+            if !EXCLUDED_HEADERS.contains(key) {
+                builder = builder.header(key, value);
+            }
+        }
+    }
+    
+    // Always set/override these headers
+    builder
         .header(header::CONTENT_TYPE, content_type)
         .header(header::VIA, via_header)
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")

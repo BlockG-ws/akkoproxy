@@ -198,6 +198,23 @@ pub fn is_image_content_type(content_type: &str) -> bool {
     content_type.starts_with("image/")
 }
 
+/// Get OutputFormat from content-type string
+pub fn format_from_content_type(content_type: &str) -> Option<OutputFormat> {
+    match content_type {
+        "image/avif" => Some(OutputFormat::Avif),
+        "image/webp" => Some(OutputFormat::WebP),
+        "image/jpeg" | "image/jpg" => Some(OutputFormat::Jpeg),
+        "image/png" => Some(OutputFormat::Png),
+        _ => None,
+    }
+}
+
+/// Check if the upstream format satisfies the desired format
+/// Returns true if no conversion is needed
+pub fn format_satisfies(upstream_format: OutputFormat, desired_format: OutputFormat) -> bool {
+    upstream_format == desired_format || desired_format == OutputFormat::Original
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,5 +246,31 @@ mod tests {
         assert!(is_image_content_type("image/png"));
         assert!(!is_image_content_type("text/html"));
         assert!(!is_image_content_type("application/json"));
+    }
+
+    #[test]
+    fn test_format_from_content_type() {
+        assert_eq!(format_from_content_type("image/avif"), Some(OutputFormat::Avif));
+        assert_eq!(format_from_content_type("image/webp"), Some(OutputFormat::WebP));
+        assert_eq!(format_from_content_type("image/jpeg"), Some(OutputFormat::Jpeg));
+        assert_eq!(format_from_content_type("image/jpg"), Some(OutputFormat::Jpeg));
+        assert_eq!(format_from_content_type("image/png"), Some(OutputFormat::Png));
+        assert_eq!(format_from_content_type("image/gif"), None);
+        assert_eq!(format_from_content_type("text/plain"), None);
+    }
+
+    #[test]
+    fn test_format_satisfies() {
+        // Same format satisfies
+        assert!(format_satisfies(OutputFormat::Avif, OutputFormat::Avif));
+        assert!(format_satisfies(OutputFormat::WebP, OutputFormat::WebP));
+        
+        // Original always satisfied
+        assert!(format_satisfies(OutputFormat::Avif, OutputFormat::Original));
+        assert!(format_satisfies(OutputFormat::Jpeg, OutputFormat::Original));
+        
+        // Different formats don't satisfy
+        assert!(!format_satisfies(OutputFormat::Jpeg, OutputFormat::Avif));
+        assert!(!format_satisfies(OutputFormat::Png, OutputFormat::WebP));
     }
 }

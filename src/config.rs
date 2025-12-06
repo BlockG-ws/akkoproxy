@@ -32,6 +32,10 @@ pub struct ServerConfig {
     /// Custom Via header value
     #[serde(default = "default_via_header")]
     pub via_header: String,
+    
+    /// Preserve all headers from upstream
+    #[serde(default)]
+    pub preserve_upstream_headers: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -84,7 +88,7 @@ fn default_bind_address() -> SocketAddr {
 }
 
 fn default_via_header() -> String {
-    format!("akkoma-media-proxy/{}", env!("CARGO_PKG_VERSION"))
+    format!("akkoproxy/{}", env!("CARGO_PKG_VERSION"))
 }
 
 fn default_timeout() -> u64 {
@@ -120,6 +124,7 @@ impl Default for ServerConfig {
         Self {
             bind: default_bind_address(),
             via_header: default_via_header(),
+            preserve_upstream_headers: false,
         }
     }
 }
@@ -183,12 +188,6 @@ impl Config {
         }
         
         Ok(())
-    }
-    
-    /// Generate example configuration
-    pub fn example() -> String {
-        let example = Self::with_upstream("https://akkoma.example.com".to_string());
-        toml::to_string_pretty(&example).unwrap()
     }
 }
 
