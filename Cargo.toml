@@ -1,0 +1,47 @@
+[package]
+name = "akkoma-media-proxy"
+version = "0.1.0"
+edition = "2021"
+authors = ["Akkoma Media Proxy Contributors"]
+description = "A fast caching and optimization media proxy for Akkoma/Pleroma"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/BlockG-ws/fantastic-computing-machine"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+
+# HTTP server and client
+axum = { version = "0.7", features = ["http2"] }
+hyper = { version = "1.4", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["trace", "compression-full", "cors"] }
+
+# Image processing
+image = { version = "0.25", features = ["avif", "webp", "jpeg", "png", "gif"] }
+libavif = { version = "0.12", optional = true }
+
+# Configuration
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+# Caching
+moka = { version = "0.12", features = ["future"] }
+
+# Utilities
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+anyhow = "1.0"
+thiserror = "1.0"
+bytes = "1.7"
+futures = "0.3"
+http-body-util = "0.1"
+url = "2.5"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
