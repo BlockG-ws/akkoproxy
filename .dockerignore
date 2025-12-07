@@ -5,3 +5,4 @@ target/
 *.toml
 !Cargo.toml
 !Cargo.lock
+!config.example.toml
