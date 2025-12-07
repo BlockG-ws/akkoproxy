@@ -33,6 +33,27 @@ fn should_exclude_header(key: &header::HeaderName) -> bool {
     EXCLUDED_HEADERS.contains(key) || key.as_str() == X_CACHE_STATUS
 }
 
+/// Build Vary header value, prepending "Accept" to upstream value if present
+fn build_vary_header(upstream_vary: Option<&str>) -> String {
+    if let Some(upstream_value) = upstream_vary {
+        // Check if "Accept" is already in the upstream Vary header (case-insensitive)
+        let has_accept = upstream_value
+            .split(',')
+            .any(|v| v.trim().eq_ignore_ascii_case("accept"));
+        
+        if has_accept {
+            // If upstream already has "Accept", just use upstream value
+            upstream_value.to_string()
+        } else {
+            // Prepend "Accept" to upstream value
+            format!("Accept, {}", upstream_value)
+        }
+    } else {
+        // No upstream Vary header, just use "Accept"
+        "Accept".to_string()
+    }
+}
+
 /// Application state shared across handlers
 #[derive(Clone)]
 pub struct AppState {
@@ -383,25 +404,7 @@ fn build_response(
     
     // Always add Vary header with Accept
     // If upstream has Vary header, prepend "Accept" to it
-    let vary_value = if let Some(upstream_value) = upstream_vary {
-        // Check if "Accept" is already in the upstream Vary header (case-insensitive)
-        let has_accept = upstream_value
-            .split(',')
-            .any(|v| v.trim().eq_ignore_ascii_case("accept"));
-        
-        if has_accept {
-            // If upstream already has "Accept", just use upstream value
-            upstream_value.to_string()
-        } else {
-            // Prepend "Accept" to upstream value
-            format!("Accept, {}", upstream_value)
-        }
-    } else {
-        // No upstream Vary header, just use "Accept"
-        "Accept".to_string()
-    };
-    
-    builder = builder.header(header::VARY, vary_value);
+    builder = builder.header(header::VARY, build_vary_header(upstream_vary));
     
     // Only set CORS header if upstream didn't provide one
     if !upstream_has_cors {
@@ -449,25 +452,7 @@ fn build_response_with_status(
     
     // Always add Vary header with Accept
     // If upstream has Vary header, prepend "Accept" to it
-    let vary_value = if let Some(upstream_value) = upstream_vary {
-        // Check if "Accept" is already in the upstream Vary header (case-insensitive)
-        let has_accept = upstream_value
-            .split(',')
-            .any(|v| v.trim().eq_ignore_ascii_case("accept"));
-        
-        if has_accept {
-            // If upstream already has "Accept", just use upstream value
-            upstream_value.to_string()
-        } else {
-            // Prepend "Accept" to upstream value
-            format!("Accept, {}", upstream_value)
-        }
-    } else {
-        // No upstream Vary header, just use "Accept"
-        "Accept".to_string()
-    };
-    
-    builder = builder.header(header::VARY, vary_value);
+    builder = builder.header(header::VARY, build_vary_header(upstream_vary));
     
     // Only set CORS header if upstream didn't provide one
     if !upstream_has_cors {
