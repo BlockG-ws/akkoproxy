@@ -12,11 +12,19 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
+/// Custom header name for cache status
+const X_CACHE_STATUS: &str = "x-cache-status";
+
 /// Headers that should not be copied from upstream responses
+/// These are either automatically set by the proxy or should not be forwarded
 const EXCLUDED_HEADERS: &[header::HeaderName] = &[
     header::CONTENT_LENGTH,
+    header::CONTENT_TYPE,
     header::TRANSFER_ENCODING,
     header::CONNECTION,
+    header::VIA,
+    header::CACHE_CONTROL,
+    header::ACCESS_CONTROL_ALLOW_ORIGIN,
 ];
 
 /// Application state shared across handlers
@@ -292,8 +300,8 @@ fn build_response(
     // Add upstream headers if configured
     if let Some(headers) = upstream_headers {
         for (key, value) in headers.iter() {
-            // Skip headers that shouldn't be copied
-            if !EXCLUDED_HEADERS.contains(key) {
+            // Skip headers that shouldn't be copied (those set by the proxy)
+            if !EXCLUDED_HEADERS.contains(key) && key.as_str() != X_CACHE_STATUS {
                 builder = builder.header(key, value);
             }
         }
@@ -323,8 +331,8 @@ fn build_response_with_status(
     // Add upstream headers if configured
     if let Some(headers) = upstream_headers {
         for (key, value) in headers.iter() {
-            // Skip headers that shouldn't be copied
-            if !EXCLUDED_HEADERS.contains(key) {
+            // Skip headers that shouldn't be copied (those set by the proxy)
+            if !EXCLUDED_HEADERS.contains(key) && key.as_str() != X_CACHE_STATUS {
                 builder = builder.header(key, value);
             }
         }
@@ -378,5 +386,88 @@ impl IntoResponse for ProxyError {
         };
         
         (status, message).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{HeaderMap, HeaderName, HeaderValue};
+
+    #[test]
+    fn test_build_response_no_duplicate_headers() {
+        // Create upstream headers that include content-type and via
+        let mut upstream_headers = HeaderMap::new();
+        upstream_headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/jpeg"));
+        upstream_headers.insert(header::VIA, HeaderValue::from_static("upstream-proxy"));
+        upstream_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+        upstream_headers.insert(HeaderName::from_static("x-cache-status"), HeaderValue::from_static("upstream-hit"));
+        upstream_headers.insert(HeaderName::from_static("x-custom-header"), HeaderValue::from_static("custom-value"));
+        
+        // Build response with different content-type
+        let response = build_response(
+            Bytes::from("test data"),
+            "image/avif",
+            "akkoproxy/1.0",
+            Some(&upstream_headers),
+            true,
+        );
+        
+        let headers = response.headers();
+        
+        // Content-Type should only have the proxy's value (image/avif), not upstream's (image/jpeg)
+        let content_types: Vec<_> = headers.get_all(header::CONTENT_TYPE).iter().collect();
+        assert_eq!(content_types.len(), 1, "Content-Type should not be duplicated");
+        assert_eq!(content_types[0], "image/avif");
+        
+        // Via should only have the proxy's value
+        let via_values: Vec<_> = headers.get_all(header::VIA).iter().collect();
+        assert_eq!(via_values.len(), 1, "Via should not be duplicated");
+        assert_eq!(via_values[0], "akkoproxy/1.0");
+        
+        // Cache-Control should only have the proxy's value
+        let cache_control_values: Vec<_> = headers.get_all(header::CACHE_CONTROL).iter().collect();
+        assert_eq!(cache_control_values.len(), 1, "Cache-Control should not be duplicated");
+        assert_eq!(cache_control_values[0], "public, max-age=31536000, immutable");
+        
+        // X-Cache-Status should only have the proxy's value
+        let x_cache_status_values: Vec<_> = headers.get_all("x-cache-status").iter().collect();
+        assert_eq!(x_cache_status_values.len(), 1, "X-Cache-Status should not be duplicated");
+        assert_eq!(x_cache_status_values[0], "HIT");
+        
+        // Custom header should be preserved
+        assert_eq!(headers.get("x-custom-header").unwrap(), "custom-value");
+    }
+    
+    #[test]
+    fn test_build_response_with_status_no_duplicate_headers() {
+        // Create upstream headers
+        let mut upstream_headers = HeaderMap::new();
+        upstream_headers.insert(header::VIA, HeaderValue::from_static("upstream-proxy"));
+        upstream_headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("https://example.com"));
+        upstream_headers.insert(HeaderName::from_static("x-custom-header"), HeaderValue::from_static("custom-value"));
+        
+        // Build response
+        let response = build_response_with_status(
+            Bytes::from("redirect"),
+            StatusCode::MOVED_PERMANENTLY,
+            "akkoproxy/1.0",
+            Some(&upstream_headers),
+        );
+        
+        let headers = response.headers();
+        
+        // Via should only have the proxy's value
+        let via_values: Vec<_> = headers.get_all(header::VIA).iter().collect();
+        assert_eq!(via_values.len(), 1, "Via should not be duplicated");
+        assert_eq!(via_values[0], "akkoproxy/1.0");
+        
+        // Access-Control-Allow-Origin should only have the proxy's value
+        let acao_values: Vec<_> = headers.get_all(header::ACCESS_CONTROL_ALLOW_ORIGIN).iter().collect();
+        assert_eq!(acao_values.len(), 1, "Access-Control-Allow-Origin should not be duplicated");
+        assert_eq!(acao_values[0], "*");
+        
+        // Custom header should be preserved
+        assert_eq!(headers.get("x-custom-header").unwrap(), "custom-value");
     }
 }

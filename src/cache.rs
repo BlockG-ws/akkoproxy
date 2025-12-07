@@ -37,11 +37,6 @@ impl ResponseCache {
         let cache = Cache::builder()
             .max_capacity(max_capacity)
             .time_to_live(ttl)
-            .weigher(move |_key: &CacheKey, value: &Arc<CachedResponse>| {
-                // Weight based on data size
-                let size = value.data.len() as u32;
-                std::cmp::max(1, size)
-            })
             .initial_capacity(100)
             .build();
         
