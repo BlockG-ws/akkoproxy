@@ -19,7 +19,7 @@ A fast caching and optimization media proxy for Akkoma/Pleroma, built in Rust.
 The simplest way to start:
 
 ```bash
-UPSTREAM_URL=https://your-akkoma-instance.com ./akkoma-media-proxy
+UPSTREAM_URL=https://your-akkoma-instance.com ./akkoproxy
 ```
 
 ### Using Configuration File
@@ -34,7 +34,7 @@ url = "https://your-akkoma-instance.com"
 Then run:
 
 ```bash
-./akkoma-media-proxy
+./akkoproxy
 ```
 
 See `config.example.toml` for all available options.
@@ -68,7 +68,7 @@ Requirements:
 
 ```bash
 cargo build --release
-./target/release/akkoma-media-proxy
+./target/release/akkoproxy
 ```
 
 ## Configuration
