@@ -17,6 +17,8 @@ const X_CACHE_STATUS: &str = "x-cache-status";
 
 /// Headers that should not be copied from upstream responses
 /// These are either automatically set by the proxy or should not be forwarded
+/// Note: ACCESS_CONTROL_ALLOW_ORIGIN is NOT excluded - it will be preserved from upstream
+/// if present, otherwise the proxy will set it to "*"
 const EXCLUDED_HEADERS: &[header::HeaderName] = &[
     header::CONTENT_LENGTH,
     header::CONTENT_TYPE,
@@ -24,7 +26,6 @@ const EXCLUDED_HEADERS: &[header::HeaderName] = &[
     header::CONNECTION,
     header::VIA,
     header::CACHE_CONTROL,
-    header::ACCESS_CONTROL_ALLOW_ORIGIN,
 ];
 
 /// Check if a header should be excluded from upstream response
@@ -111,24 +112,37 @@ pub async fn proxy_handler(
         return Err(ProxyError::PathNotAllowed);
     }
     
-    // Build upstream URL
-    let upstream_url = if query.is_empty() {
-        format!("{}{}", state.config.upstream.url, path)
+    // Parse query parameters if behind_cloudflare_free is enabled
+    let (format_from_query, upstream_query) = if state.config.server.behind_cloudflare_free && !query.is_empty() {
+        parse_query_for_format(query)
     } else {
-        format!("{}{}?{}", state.config.upstream.url, path, query)
+        (None, query.to_string())
     };
     
-    // Get Accept header to determine desired format
-    let accept = headers
-        .get(header::ACCEPT)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("*/*");
+    // Build upstream URL (without format query if it was present)
+    let upstream_url = if upstream_query.is_empty() {
+        format!("{}{}", state.config.upstream.url, path)
+    } else {
+        format!("{}{}?{}", state.config.upstream.url, path, upstream_query)
+    };
     
-    let desired_format = parse_accept_header(
-        accept,
-        state.config.image.enable_avif,
-        state.config.image.enable_webp,
-    );
+    // Determine desired format
+    let desired_format = if let Some(fmt) = format_from_query {
+        // Use format from query parameter if available
+        fmt
+    } else {
+        // Get Accept header to determine desired format
+        let accept = headers
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("*/*");
+        
+        parse_accept_header(
+            accept,
+            state.config.image.enable_avif,
+            state.config.image.enable_webp,
+        )
+    };
     
     // Generate cache key
     let cache_key = CacheKey::new(
@@ -145,6 +159,7 @@ pub async fn proxy_handler(
             &state.config.server.via_header, 
             cached.upstream_headers.as_ref(),
             true, // is_cache_hit
+            state.config.server.behind_cloudflare_free,
         ));
     }
     
@@ -261,7 +276,45 @@ pub async fn proxy_handler(
         &state.config.server.via_header, 
         upstream_headers.as_ref(),
         false, // is_cache_hit
+        state.config.server.behind_cloudflare_free,
     ))
+}
+
+/// Parse query string to extract format parameter and return modified query
+/// Returns (format_option, remaining_query_string)
+/// 
+/// This parser is intentionally simple and only handles basic ASCII format values
+/// ("avif", "webp") with case-insensitive matching. It handles '+' as space
+/// (common in query strings) but does not perform full URL decoding.
+/// 
+/// Cloudflare Transform Rules generate clean query parameters like "format=avif"
+/// so complex URL decoding is not necessary for this use case.
+fn parse_query_for_format(query: &str) -> (Option<OutputFormat>, String) {
+    let mut format_value = None;
+    let mut remaining_params = Vec::new();
+    
+    for param in query.split('&') {
+        if let Some((key, value)) = param.split_once('=') {
+            if key == "format" {
+                // Parse the format value directly (case-insensitive, trimmed)
+                // We expect simple ASCII values like "avif" or "webp"
+                // Strip common whitespace encodings like +
+                let normalized = value.replace('+', " ");
+                format_value = match normalized.trim().to_lowercase().as_str() {
+                    "avif" => Some(OutputFormat::Avif),
+                    "webp" => Some(OutputFormat::WebP),
+                    _ => None, // Invalid or unsupported format values are ignored
+                };
+            } else {
+                remaining_params.push(param);
+            }
+        } else {
+            // Keep parameters without values (e.g., "debug" in "?debug&other=value")
+            remaining_params.push(param);
+        }
+    }
+    
+    (format_value, remaining_params.join("&"))
 }
 
 /// Determine if image conversion is needed
@@ -298,9 +351,15 @@ fn build_response(
     via_header: &str,
     upstream_headers: Option<&HeaderMap>,
     is_cache_hit: bool,
+    behind_cloudflare_free: bool,
 ) -> Response {
     let mut builder = Response::builder()
         .status(StatusCode::OK);
+    
+    // Check if upstream has CORS header
+    let upstream_has_cors = upstream_headers
+        .map(|h| h.contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN))
+        .unwrap_or(false);
     
     // Add upstream headers if configured
     if let Some(headers) = upstream_headers {
@@ -313,12 +372,23 @@ fn build_response(
     }
     
     // Always set/override these headers
-    builder
+    builder = builder
         .header(header::CONTENT_TYPE, content_type)
         .header(header::VIA, via_header)
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
-        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-        .header("X-Cache-Status", if is_cache_hit { "HIT" } else { "MISS" })
+        .header("X-Cache-Status", if is_cache_hit { "HIT" } else { "MISS" });
+    
+    // Add Vary: Accept header when behind_cloudflare_free is enabled
+    if behind_cloudflare_free {
+        builder = builder.header(header::VARY, "Accept");
+    }
+    
+    // Only set CORS header if upstream didn't provide one
+    if !upstream_has_cors {
+        builder = builder.header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    }
+    
+    builder
         .body(Body::from(data))
         .expect("Failed to build response")
 }
@@ -333,6 +403,11 @@ fn build_response_with_status(
     let mut builder = Response::builder()
         .status(status);
     
+    // Check if upstream has CORS header
+    let upstream_has_cors = upstream_headers
+        .map(|h| h.contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN))
+        .unwrap_or(false);
+    
     // Add upstream headers if configured
     if let Some(headers) = upstream_headers {
         for (key, value) in headers.iter() {
@@ -344,9 +419,14 @@ fn build_response_with_status(
     }
     
     // Always add Via header
+    builder = builder.header(header::VIA, via_header);
+    
+    // Only set CORS header if upstream didn't provide one
+    if !upstream_has_cors {
+        builder = builder.header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    }
+    
     builder
-        .header(header::VIA, via_header)
-        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Body::from(data))
         .expect("Failed to build response with status")
 }
@@ -416,6 +496,7 @@ mod tests {
             "akkoproxy/1.0",
             Some(&upstream_headers),
             true,
+            false, // behind_cloudflare_free
         );
         
         let headers = response.headers();
@@ -467,12 +548,118 @@ mod tests {
         assert_eq!(via_values.len(), 1, "Via should not be duplicated");
         assert_eq!(via_values[0], "akkoproxy/1.0");
         
-        // Access-Control-Allow-Origin should only have the proxy's value
+        // Access-Control-Allow-Origin should have upstream's value (not replaced)
         let acao_values: Vec<_> = headers.get_all(header::ACCESS_CONTROL_ALLOW_ORIGIN).iter().collect();
         assert_eq!(acao_values.len(), 1, "Access-Control-Allow-Origin should not be duplicated");
-        assert_eq!(acao_values[0], "*");
+        assert_eq!(acao_values[0], "https://example.com");
         
         // Custom header should be preserved
         assert_eq!(headers.get("x-custom-header").unwrap(), "custom-value");
+    }
+    
+    #[test]
+    fn test_parse_query_for_format() {
+        // Test format=avif
+        let (format, remaining) = parse_query_for_format("format=avif&other=value");
+        assert_eq!(format, Some(OutputFormat::Avif));
+        assert_eq!(remaining, "other=value");
+        
+        // Test format=webp
+        let (format, remaining) = parse_query_for_format("format=webp");
+        assert_eq!(format, Some(OutputFormat::WebP));
+        assert_eq!(remaining, "");
+        
+        // Test no format parameter
+        let (format, remaining) = parse_query_for_format("other=value&another=test");
+        assert_eq!(format, None);
+        assert_eq!(remaining, "other=value&another=test");
+        
+        // Test format with unknown value
+        let (format, remaining) = parse_query_for_format("format=jpeg&other=value");
+        assert_eq!(format, None);
+        assert_eq!(remaining, "other=value");
+        
+        // Test format in middle
+        let (format, remaining) = parse_query_for_format("a=1&format=avif&b=2");
+        assert_eq!(format, Some(OutputFormat::Avif));
+        assert_eq!(remaining, "a=1&b=2");
+        
+        // Test format with URL encoding (spaces as +)
+        let (format, remaining) = parse_query_for_format("format=webp+test&other=value");
+        assert_eq!(format, None); // Should not match due to extra text
+        assert_eq!(remaining, "other=value");
+        
+        // Test format with case insensitivity
+        let (format, remaining) = parse_query_for_format("format=AVIF");
+        assert_eq!(format, Some(OutputFormat::Avif));
+        assert_eq!(remaining, "");
+        
+        let (format, remaining) = parse_query_for_format("format=WebP");
+        assert_eq!(format, Some(OutputFormat::WebP));
+        assert_eq!(remaining, "");
+        
+        // Test format with whitespace (+ is space in query strings)
+        let (format, remaining) = parse_query_for_format("format=+avif+&other=value");
+        assert_eq!(format, Some(OutputFormat::Avif));
+        assert_eq!(remaining, "other=value");
+    }
+    
+    #[test]
+    fn test_cors_header_follows_upstream() {
+        // Test when upstream provides CORS header
+        let mut upstream_headers = HeaderMap::new();
+        upstream_headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("https://example.com"));
+        
+        let response = build_response(
+            Bytes::from("test"),
+            "text/plain",
+            "akkoproxy/1.0",
+            Some(&upstream_headers),
+            false,
+            false,
+        );
+        
+        // Should use upstream CORS value
+        assert_eq!(response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(), "https://example.com");
+        
+        // Test when upstream doesn't provide CORS header
+        let response = build_response(
+            Bytes::from("test"),
+            "text/plain",
+            "akkoproxy/1.0",
+            None,
+            false,
+            false,
+        );
+        
+        // Should use default "*"
+        assert_eq!(response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(), "*");
+    }
+    
+    #[test]
+    fn test_vary_header_with_cloudflare_free() {
+        // Test with behind_cloudflare_free=true
+        let response = build_response(
+            Bytes::from("test"),
+            "text/plain",
+            "akkoproxy/1.0",
+            None,
+            false,
+            true, // behind_cloudflare_free
+        );
+        
+        assert_eq!(response.headers().get(header::VARY).unwrap(), "Accept");
+        
+        // Test with behind_cloudflare_free=false
+        let response = build_response(
+            Bytes::from("test"),
+            "text/plain",
+            "akkoproxy/1.0",
+            None,
+            false,
+            false, // behind_cloudflare_free
+        );
+        
+        assert!(response.headers().get(header::VARY).is_none());
     }
 }

@@ -18,6 +18,15 @@ via_header = "akkoproxy/0.1.0"
 # Preserve all headers from upstream when responding (default: true)
 preserve_upstream_headers = true
 
+# Enable Cloudflare Free plan compatibility mode (default: false)
+# When enabled, the proxy will look for a 'format' query parameter to determine
+# output format (avif/webp), then strip it from the upstream request.
+# This is useful with Cloudflare's Transform Rules to add format based on Accept header.
+# Example Cloudflare Transform Rule:
+#   - If: Accept header contains "image/avif"
+#   - Then: Add query parameter "format=avif"
+behind_cloudflare_free = false
+
 [cache]
 # Maximum number of cached items (default: 10000)
 max_capacity = 10000
