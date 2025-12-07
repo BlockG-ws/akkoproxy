@@ -27,6 +27,11 @@ const EXCLUDED_HEADERS: &[header::HeaderName] = &[
     header::ACCESS_CONTROL_ALLOW_ORIGIN,
 ];
 
+/// Check if a header should be excluded from upstream response
+fn should_exclude_header(key: &header::HeaderName) -> bool {
+    EXCLUDED_HEADERS.contains(key) || key.as_str() == X_CACHE_STATUS
+}
+
 /// Application state shared across handlers
 #[derive(Clone)]
 pub struct AppState {
@@ -301,7 +306,7 @@ fn build_response(
     if let Some(headers) = upstream_headers {
         for (key, value) in headers.iter() {
             // Skip headers that shouldn't be copied (those set by the proxy)
-            if !EXCLUDED_HEADERS.contains(key) && key.as_str() != X_CACHE_STATUS {
+            if !should_exclude_header(key) {
                 builder = builder.header(key, value);
             }
         }
@@ -332,7 +337,7 @@ fn build_response_with_status(
     if let Some(headers) = upstream_headers {
         for (key, value) in headers.iter() {
             // Skip headers that shouldn't be copied (those set by the proxy)
-            if !EXCLUDED_HEADERS.contains(key) && key.as_str() != X_CACHE_STATUS {
+            if !should_exclude_header(key) {
                 builder = builder.header(key, value);
             }
         }
