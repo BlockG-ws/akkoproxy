@@ -95,7 +95,39 @@ timeout = 30                              # Request timeout in seconds
 bind = "0.0.0.0:3000"                          # Bind address
 via_header = "akkoma-media-proxy/0.1.0"        # Via header value
 preserve_upstream_headers = true               # Preserve all headers from upstream (default: true)
+behind_cloudflare_free = false                 # Enable Cloudflare Free plan compatibility (default: false)
 ```
+
+#### Cloudflare Free Plan Compatibility
+
+When using Cloudflare's Free plan (which doesn't support `Vary` on cached content based on headers), you can enable `behind_cloudflare_free = true` to make the proxy work better with Cloudflare's Transform Rules.
+
+**How it works:**
+
+1. Set `behind_cloudflare_free = true` in your config
+2. The proxy will look for a `format` query parameter in the URL
+   - If `format=avif` is present, the image will be converted to AVIF
+   - If `format=webp` is present, the image will be converted to WebP
+3. The `format` parameter is stripped from the upstream request
+4. A `Vary: Accept` header is added to responses
+5. The `Access-Control-Allow-Origin` header from upstream is preserved (not replaced)
+
+**Cloudflare Transform Rule Setup:**
+
+Create a Transform Rule in Cloudflare to add the `format` query parameter based on the `Accept` header:
+
+1. Go to your domain in Cloudflare Dashboard → Rules → Transform Rules → Modify Request URL
+2. Add a new rule:
+
+**Rule 1: Add format=avif for AVIF support**
+- If: `(http.request.uri.path matches "^/(media|proxy)" and http.request.headers["accept"][*] contains "image/avif")`
+- Then: Query → Add → `format` = `avif`
+
+**Rule 2: Add format=webp for WebP support (with lower priority)**
+- If: `(http.request.uri.path matches "^/(media|proxy)" and http.request.headers["accept"][*] contains "image/webp" and not http.request.headers["accept"][*] contains "image/avif")`
+- Then: Query → Add → `format` = `webp`
+
+This setup allows Cloudflare to cache different formats separately based on the query parameter, working around the Free plan's limitation on `Vary` header support.
 
 ### Cache Configuration
 

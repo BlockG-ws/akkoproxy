@@ -36,6 +36,13 @@ pub struct ServerConfig {
     /// Preserve all headers from upstream
     #[serde(default = "default_true")]
     pub preserve_upstream_headers: bool,
+    
+    /// Enable Cloudflare Free plan compatibility mode
+    /// When enabled, the proxy will look for a 'format' query parameter
+    /// and use it to determine output format (avif/webp), then strip it
+    /// from the upstream request
+    #[serde(default)]
+    pub behind_cloudflare_free: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -125,6 +132,7 @@ impl Default for ServerConfig {
             bind: default_bind_address(),
             via_header: default_via_header(),
             preserve_upstream_headers: true,
+            behind_cloudflare_free: false,
         }
     }
 }
