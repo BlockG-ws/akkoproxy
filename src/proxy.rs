@@ -46,9 +46,10 @@ impl AppState {
             .user_agent(format!("akkoproxy/{}", env!("CARGO_PKG_VERSION")))
             .pool_max_idle_per_host(10)
             .pool_idle_timeout(Duration::from_secs(90))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("Failed to create HTTP client");
-        debug!("HTTP client configured: timeout={}s, user_agent=akkoproxy/{}",
+        debug!("HTTP client configured: timeout={}s, user_agent=akkoproxy/{}, redirect_policy=none",
                config.upstream.timeout, env!("CARGO_PKG_VERSION"));
         
         let image_converter = Arc::new(ImageConverter::new(
