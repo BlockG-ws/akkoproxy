@@ -130,7 +130,8 @@ pub async fn proxy_handler(
             cached.data.clone(), 
             &cached.content_type, 
             &state.config.server.via_header, 
-            None,
+            cached.upstream_headers.as_ref(),
+            true, // is_cache_hit
         ));
     }
     
@@ -233,6 +234,7 @@ pub async fn proxy_handler(
         let cached_response = CachedResponse {
             data: final_data.clone(),
             content_type: final_content_type.clone(),
+            upstream_headers: upstream_headers.clone(),
         };
         state.cache.put(cache_key, cached_response).await;
         debug!("Cached response for {}", path);
@@ -245,6 +247,7 @@ pub async fn proxy_handler(
         &final_content_type, 
         &state.config.server.via_header, 
         upstream_headers.as_ref(),
+        false, // is_cache_hit
     ))
 }
 
@@ -281,6 +284,7 @@ fn build_response(
     content_type: &str, 
     via_header: &str,
     upstream_headers: Option<&HeaderMap>,
+    is_cache_hit: bool,
 ) -> Response {
     let mut builder = Response::builder()
         .status(StatusCode::OK);
@@ -301,6 +305,7 @@ fn build_response(
         .header(header::VIA, via_header)
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header("X-Cache-Status", if is_cache_hit { "HIT" } else { "MISS" })
         .body(Body::from(data))
         .expect("Failed to build response")
 }

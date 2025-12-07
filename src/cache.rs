@@ -1,3 +1,4 @@
+use axum::http::HeaderMap;
 use bytes::Bytes;
 use moka::future::Cache;
 use std::sync::Arc;
@@ -21,6 +22,7 @@ impl CacheKey {
 pub struct CachedResponse {
     pub data: Bytes,
     pub content_type: String,
+    pub upstream_headers: Option<HeaderMap>,
 }
 
 /// Response cache manager
@@ -84,6 +86,7 @@ mod tests {
         let response = CachedResponse {
             data: Bytes::from("test data"),
             content_type: "image/avif".to_string(),
+            upstream_headers: None,
         };
         
         cache.put(key.clone(), response.clone()).await;
