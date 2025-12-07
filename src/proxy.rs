@@ -33,6 +33,27 @@ fn should_exclude_header(key: &header::HeaderName) -> bool {
     EXCLUDED_HEADERS.contains(key) || key.as_str() == X_CACHE_STATUS
 }
 
+/// Build Vary header value, prepending "Accept" to upstream value if present
+fn build_vary_header(upstream_vary: Option<&str>) -> String {
+    if let Some(upstream_value) = upstream_vary {
+        // Check if "Accept" is already in the upstream Vary header (case-insensitive)
+        let has_accept = upstream_value
+            .split(',')
+            .any(|v| v.trim().eq_ignore_ascii_case("accept"));
+        
+        if has_accept {
+            // If upstream already has "Accept", just use upstream value
+            upstream_value.to_string()
+        } else {
+            // Prepend "Accept" to upstream value
+            format!("Accept, {}", upstream_value)
+        }
+    } else {
+        // No upstream Vary header, just use "Accept"
+        "Accept".to_string()
+    }
+}
+
 /// Application state shared across handlers
 #[derive(Clone)]
 pub struct AppState {
@@ -159,7 +180,6 @@ pub async fn proxy_handler(
             &state.config.server.via_header, 
             cached.upstream_headers.as_ref(),
             true, // is_cache_hit
-            state.config.server.behind_cloudflare_free,
         ));
     }
     
@@ -276,7 +296,6 @@ pub async fn proxy_handler(
         &state.config.server.via_header, 
         upstream_headers.as_ref(),
         false, // is_cache_hit
-        state.config.server.behind_cloudflare_free,
     ))
 }
 
@@ -351,7 +370,6 @@ fn build_response(
     via_header: &str,
     upstream_headers: Option<&HeaderMap>,
     is_cache_hit: bool,
-    behind_cloudflare_free: bool,
 ) -> Response {
     let mut builder = Response::builder()
         .status(StatusCode::OK);
@@ -361,11 +379,17 @@ fn build_response(
         .map(|h| h.contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN))
         .unwrap_or(false);
     
+    // Check if upstream has Vary header
+    let upstream_vary = upstream_headers
+        .and_then(|h| h.get(header::VARY))
+        .and_then(|v| v.to_str().ok());
+    
     // Add upstream headers if configured
     if let Some(headers) = upstream_headers {
         for (key, value) in headers.iter() {
             // Skip headers that shouldn't be copied (those set by the proxy)
-            if !should_exclude_header(key) {
+            // Also skip Vary header as we'll handle it specially
+            if !should_exclude_header(key) && key != header::VARY {
                 builder = builder.header(key, value);
             }
         }
@@ -378,10 +402,9 @@ fn build_response(
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
         .header("X-Cache-Status", if is_cache_hit { "HIT" } else { "MISS" });
     
-    // Add Vary: Accept header when behind_cloudflare_free is enabled
-    if behind_cloudflare_free {
-        builder = builder.header(header::VARY, "Accept");
-    }
+    // Always add Vary header with Accept
+    // If upstream has Vary header, prepend "Accept" to it
+    builder = builder.header(header::VARY, build_vary_header(upstream_vary));
     
     // Only set CORS header if upstream didn't provide one
     if !upstream_has_cors {
@@ -408,11 +431,17 @@ fn build_response_with_status(
         .map(|h| h.contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN))
         .unwrap_or(false);
     
+    // Check if upstream has Vary header
+    let upstream_vary = upstream_headers
+        .and_then(|h| h.get(header::VARY))
+        .and_then(|v| v.to_str().ok());
+    
     // Add upstream headers if configured
     if let Some(headers) = upstream_headers {
         for (key, value) in headers.iter() {
             // Skip headers that shouldn't be copied (those set by the proxy)
-            if !should_exclude_header(key) {
+            // Also skip Vary header as we'll handle it specially
+            if !should_exclude_header(key) && key != header::VARY {
                 builder = builder.header(key, value);
             }
         }
@@ -420,6 +449,10 @@ fn build_response_with_status(
     
     // Always add Via header
     builder = builder.header(header::VIA, via_header);
+    
+    // Always add Vary header with Accept
+    // If upstream has Vary header, prepend "Accept" to it
+    builder = builder.header(header::VARY, build_vary_header(upstream_vary));
     
     // Only set CORS header if upstream didn't provide one
     if !upstream_has_cors {
@@ -496,7 +529,6 @@ mod tests {
             "akkoproxy/1.0",
             Some(&upstream_headers),
             true,
-            false, // behind_cloudflare_free
         );
         
         let headers = response.headers();
@@ -616,7 +648,6 @@ mod tests {
             "akkoproxy/1.0",
             Some(&upstream_headers),
             false,
-            false,
         );
         
         // Should use upstream CORS value
@@ -629,7 +660,6 @@ mod tests {
             "akkoproxy/1.0",
             None,
             false,
-            false,
         );
         
         // Should use default "*"
@@ -637,29 +667,101 @@ mod tests {
     }
     
     #[test]
-    fn test_vary_header_with_cloudflare_free() {
-        // Test with behind_cloudflare_free=true
+    fn test_vary_header_always_present() {
+        // Test with no upstream headers - should have Vary: Accept
         let response = build_response(
             Bytes::from("test"),
             "text/plain",
             "akkoproxy/1.0",
             None,
             false,
-            true, // behind_cloudflare_free
         );
         
         assert_eq!(response.headers().get(header::VARY).unwrap(), "Accept");
         
-        // Test with behind_cloudflare_free=false
+        // Test with upstream headers (no Vary) - should still have Vary: Accept
+        let upstream_headers = HeaderMap::new();
         let response = build_response(
             Bytes::from("test"),
             "text/plain",
             "akkoproxy/1.0",
-            None,
+            Some(&upstream_headers),
             false,
-            false, // behind_cloudflare_free
         );
         
-        assert!(response.headers().get(header::VARY).is_none());
+        assert_eq!(response.headers().get(header::VARY).unwrap(), "Accept");
+    }
+    
+    #[test]
+    fn test_vary_header_prepends_accept_to_upstream() {
+        // Test when upstream has Vary header without Accept
+        let mut upstream_headers = HeaderMap::new();
+        upstream_headers.insert(header::VARY, HeaderValue::from_static("Origin, User-Agent"));
+        
+        let response = build_response(
+            Bytes::from("test"),
+            "text/plain",
+            "akkoproxy/1.0",
+            Some(&upstream_headers),
+            false,
+        );
+        
+        assert_eq!(response.headers().get(header::VARY).unwrap(), "Accept, Origin, User-Agent");
+        
+        // Test when upstream has Vary header with Accept already present
+        let mut upstream_headers = HeaderMap::new();
+        upstream_headers.insert(header::VARY, HeaderValue::from_static("Accept, Origin"));
+        
+        let response = build_response(
+            Bytes::from("test"),
+            "text/plain",
+            "akkoproxy/1.0",
+            Some(&upstream_headers),
+            false,
+        );
+        
+        // Should not duplicate Accept
+        assert_eq!(response.headers().get(header::VARY).unwrap(), "Accept, Origin");
+        
+        // Test when upstream has Vary header with accept in different case
+        let mut upstream_headers = HeaderMap::new();
+        upstream_headers.insert(header::VARY, HeaderValue::from_static("ACCEPT, Origin"));
+        
+        let response = build_response(
+            Bytes::from("test"),
+            "text/plain",
+            "akkoproxy/1.0",
+            Some(&upstream_headers),
+            false,
+        );
+        
+        // Should recognize case-insensitive match and not duplicate
+        assert_eq!(response.headers().get(header::VARY).unwrap(), "ACCEPT, Origin");
+    }
+    
+    #[test]
+    fn test_vary_header_in_response_with_status() {
+        // Test without upstream Vary header
+        let response = build_response_with_status(
+            Bytes::from("test"),
+            StatusCode::NOT_FOUND,
+            "akkoproxy/1.0",
+            None,
+        );
+        
+        assert_eq!(response.headers().get(header::VARY).unwrap(), "Accept");
+        
+        // Test with upstream Vary header
+        let mut upstream_headers = HeaderMap::new();
+        upstream_headers.insert(header::VARY, HeaderValue::from_static("Origin"));
+        
+        let response = build_response_with_status(
+            Bytes::from("test"),
+            StatusCode::MOVED_PERMANENTLY,
+            "akkoproxy/1.0",
+            Some(&upstream_headers),
+        );
+        
+        assert_eq!(response.headers().get(header::VARY).unwrap(), "Accept, Origin");
     }
 }
