@@ -282,6 +282,13 @@ pub async fn proxy_handler(
 
 /// Parse query string to extract format parameter and return modified query
 /// Returns (format_option, remaining_query_string)
+/// 
+/// This parser is intentionally simple and only handles basic ASCII format values
+/// ("avif", "webp") with case-insensitive matching. It handles '+' as space
+/// (common in query strings) but does not perform full URL decoding.
+/// 
+/// Cloudflare Transform Rules generate clean query parameters like "format=avif"
+/// so complex URL decoding is not necessary for this use case.
 fn parse_query_for_format(query: &str) -> (Option<OutputFormat>, String) {
     let mut format_value = None;
     let mut remaining_params = Vec::new();
@@ -296,12 +303,13 @@ fn parse_query_for_format(query: &str) -> (Option<OutputFormat>, String) {
                 format_value = match normalized.trim().to_lowercase().as_str() {
                     "avif" => Some(OutputFormat::Avif),
                     "webp" => Some(OutputFormat::WebP),
-                    _ => None,
+                    _ => None, // Invalid or unsupported format values are ignored
                 };
             } else {
                 remaining_params.push(param);
             }
         } else {
+            // Keep parameters without values (e.g., "debug" in "?debug&other=value")
             remaining_params.push(param);
         }
     }
