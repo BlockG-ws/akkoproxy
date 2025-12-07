@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy the binary from builder
-COPY --from=builder /build/target/release/akkoma-media-proxy /app/akkoma-media-proxy
+COPY --from=builder /build/target/release/akkoproxy /app/akkoproxy
 
 # Copy example config
 COPY config.example.toml /app/config.example.toml
@@ -45,7 +45,7 @@ EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["/app/akkoma-media-proxy", "--version"] || exit 1
+    CMD ["/app/akkoproxy", "--version"] || exit 1
 
 # Run the application
-ENTRYPOINT ["/app/akkoma-media-proxy"]
+ENTRYPOINT ["/app/akkoproxy"]
