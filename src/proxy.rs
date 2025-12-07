@@ -17,6 +17,8 @@ const X_CACHE_STATUS: &str = "x-cache-status";
 
 /// Headers that should not be copied from upstream responses
 /// These are either automatically set by the proxy or should not be forwarded
+/// Note: ACCESS_CONTROL_ALLOW_ORIGIN is NOT excluded - it will be preserved from upstream
+/// if present, otherwise the proxy will set it to "*"
 const EXCLUDED_HEADERS: &[header::HeaderName] = &[
     header::CONTENT_LENGTH,
     header::CONTENT_TYPE,
@@ -287,8 +289,10 @@ fn parse_query_for_format(query: &str) -> (Option<OutputFormat>, String) {
     for param in query.split('&') {
         if let Some((key, value)) = param.split_once('=') {
             if key == "format" {
-                // Parse the format value
-                format_value = match value {
+                // Simple URL decode for common cases (handles %20, %2B, etc.)
+                let decoded_value = decode_query_value(value);
+                // Parse the format value (case-insensitive, trimmed)
+                format_value = match decoded_value.trim().to_lowercase().as_str() {
                     "avif" => Some(OutputFormat::Avif),
                     "webp" => Some(OutputFormat::WebP),
                     _ => None,
@@ -302,6 +306,35 @@ fn parse_query_for_format(query: &str) -> (Option<OutputFormat>, String) {
     }
     
     (format_value, remaining_params.join("&"))
+}
+
+/// Simple URL decode for query values
+fn decode_query_value(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '%' {
+            // Try to decode the percent-encoded character
+            let hex: String = chars.by_ref().take(2).collect();
+            if hex.len() == 2 {
+                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                    result.push(byte as char);
+                    continue;
+                }
+            }
+            // If decoding fails, keep the original characters
+            result.push('%');
+            result.push_str(&hex);
+        } else if ch == '+' {
+            // Plus signs are spaces in query strings
+            result.push(' ');
+        } else {
+            result.push(ch);
+        }
+    }
+    
+    result
 }
 
 /// Determine if image conversion is needed
@@ -570,6 +603,41 @@ mod tests {
         let (format, remaining) = parse_query_for_format("a=1&format=avif&b=2");
         assert_eq!(format, Some(OutputFormat::Avif));
         assert_eq!(remaining, "a=1&b=2");
+        
+        // Test format with URL encoding (spaces as +)
+        let (format, remaining) = parse_query_for_format("format=webp+test&other=value");
+        assert_eq!(format, None); // Should not match due to extra text
+        assert_eq!(remaining, "other=value");
+        
+        // Test format with case insensitivity
+        let (format, remaining) = parse_query_for_format("format=AVIF");
+        assert_eq!(format, Some(OutputFormat::Avif));
+        assert_eq!(remaining, "");
+        
+        let (format, remaining) = parse_query_for_format("format=WebP");
+        assert_eq!(format, Some(OutputFormat::WebP));
+        assert_eq!(remaining, "");
+        
+        // Test format with whitespace
+        let (format, remaining) = parse_query_for_format("format=+avif+&other=value");
+        assert_eq!(format, Some(OutputFormat::Avif));
+        assert_eq!(remaining, "other=value");
+    }
+    
+    #[test]
+    fn test_decode_query_value() {
+        // Test basic decoding
+        assert_eq!(decode_query_value("avif"), "avif");
+        assert_eq!(decode_query_value("webp"), "webp");
+        
+        // Test plus to space
+        assert_eq!(decode_query_value("hello+world"), "hello world");
+        
+        // Test percent encoding
+        assert_eq!(decode_query_value("hello%20world"), "hello world");
+        
+        // Test mixed encoding
+        assert_eq!(decode_query_value("hello+world%20test"), "hello world test");
     }
     
     #[test]
