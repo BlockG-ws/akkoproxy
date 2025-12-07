@@ -64,7 +64,7 @@ docker run -p 3000:3000 \
 ### From Source
 
 Requirements:
-- Rust 1.85 or later
+- Rust 1.84 or later (for edition2024 support required by dependencies)
 
 ```bash
 cargo build --release
