@@ -108,40 +108,31 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Load configuration from file or environment, with CLI overrides
+/// Load configuration with priority: env > cmdline options > config file
 fn load_config(cli: &Cli) -> Result<Config> {
-    // Start with base config from file or upstream URL
+    // Priority 3 (lowest): Load from config file if it exists
     let mut config = if let Some(config_path) = &cli.config {
         // Use specified config file
         info!("Loading configuration from: {}", config_path.display());
         Config::from_file(config_path)?
-    } else if let Some(upstream_url) = &cli.upstream {
-        // Use upstream from CLI
-        info!("Using upstream URL from command line: {}", upstream_url);
-        Config::with_upstream(upstream_url.clone())
     } else {
-        // Try environment variables or default config file
-        let config_path = std::env::var("CONFIG_PATH")
-            .ok()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("config.toml"));
-
+        // Try default config file path
+        let config_path = PathBuf::from("config.toml");
         if config_path.exists() {
             info!("Loading configuration from: {}", config_path.display());
             Config::from_file(&config_path)?
-        } else if let Ok(upstream_url) = std::env::var("UPSTREAM_URL") {
-            info!("Using upstream URL from environment: {}", upstream_url);
-            Config::with_upstream(upstream_url)
         } else {
-            anyhow::bail!(
-                "No configuration found!\n\
-                Use --config to specify a config file, or --upstream to provide upstream URL.\n\
-                Alternatively, set UPSTREAM_URL environment variable or create config.toml file."
-            )
+            // No config file, start with defaults (upstream will be set from env or CLI)
+            Config::default_without_upstream()
         }
     };
 
-    // Apply CLI overrides
+    // Priority 2 (medium): Apply command-line options
+    if let Some(upstream_url) = &cli.upstream {
+        info!("Overriding upstream URL from command line: {}", upstream_url);
+        config.upstream.url = upstream_url.clone();
+    }
+    
     if let Some(bind) = cli.bind {
         config.server.bind = bind;
     }
@@ -162,5 +153,35 @@ fn load_config(cli: &Cli) -> Result<Config> {
         config.server.preserve_upstream_headers = true;
     }
 
+    // Priority 1 (highest): Apply environment variables
+    if let Ok(upstream_url) = std::env::var("UPSTREAM_URL") {
+        info!("Overriding upstream URL from environment: {}", upstream_url);
+        config.upstream.url = upstream_url;
+    }
+    
+    if let Ok(bind_str) = std::env::var("BIND_ADDRESS") {
+        if let Ok(bind) = bind_str.parse() {
+            info!("Overriding bind address from environment: {}", bind);
+            config.server.bind = bind;
+        }
+    }
+    
+    if let Ok(preserve) = std::env::var("PRESERVE_HEADERS") {
+        if let Ok(value) = preserve.parse::<bool>() {
+            info!("Overriding preserve_headers from environment: {}", value);
+            config.server.preserve_upstream_headers = value;
+        }
+    }
+
+    // Validate that we have an upstream URL
+    if config.upstream.url.is_empty() {
+        anyhow::bail!(
+            "No upstream URL configured!\n\
+            Use --upstream to specify upstream URL via command line,\n\
+            set UPSTREAM_URL environment variable, or add it to config.toml file."
+        )
+    }
+
+    config.validate()?;
     Ok(config)
 }

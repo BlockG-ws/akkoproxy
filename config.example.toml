@@ -15,8 +15,8 @@ bind = "0.0.0.0:3000"
 # Custom Via header value (default: akkoproxy/{version})
 via_header = "akkoproxy/0.1.0"
 
-# Preserve all headers from upstream when responding (default: false)
-preserve_upstream_headers = false
+# Preserve all headers from upstream when responding (default: true)
+preserve_upstream_headers = true
 
 [cache]
 # Maximum number of cached items (default: 10000)

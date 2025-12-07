@@ -5,10 +5,11 @@ A fast caching and optimization media proxy for Akkoma/Pleroma, built in Rust.
 ## Features
 
 - **Caching Reverse Proxy**: Caches media and proxy requests to reduce load on upstream servers
+- **Header Preservation**: Preserves all upstream headers by default, including redirects (302) with Location headers
 - **Image Format Conversion**: Automatically converts images to modern formats (AVIF, WebP) based on client `Accept` headers
 - **Path Filtering**: Only handles `/media` and `/proxy` endpoints for security
 - **Performance**: Built with Tokio async runtime for high concurrency
-- **Easy Configuration**: TOML-based configuration with sensible defaults
+- **Flexible Configuration**: TOML-based configuration with environment variable and CLI overrides
 - **Out-of-the-box**: Works with just an upstream URL, no complex setup needed
 
 ## Quick Start
@@ -18,7 +19,7 @@ A fast caching and optimization media proxy for Akkoma/Pleroma, built in Rust.
 The simplest way to start:
 
 ```bash
-UPSTREAM_URL=https://your-akkoma-instance.com ./akkoma-media-proxy
+UPSTREAM_URL=https://your-akkoma-instance.com ./akkoproxy
 ```
 
 ### Using Configuration File
@@ -33,7 +34,7 @@ url = "https://your-akkoma-instance.com"
 Then run:
 
 ```bash
-./akkoma-media-proxy
+./akkoproxy
 ```
 
 See `config.example.toml` for all available options.
@@ -63,14 +64,21 @@ docker run -p 3000:3000 \
 ### From Source
 
 Requirements:
-- Rust 1.70 or later
+- Rust 1.84 or later (for edition2024 support required by dependencies)
 
 ```bash
 cargo build --release
-./target/release/akkoma-media-proxy
+./target/release/akkoproxy
 ```
 
 ## Configuration
+
+Configuration is loaded with the following priority (highest to lowest):
+1. **Environment Variables** (highest priority)
+2. **Command-line Options**
+3. **Configuration File** (lowest priority)
+
+This means environment variables will override command-line options, which will override settings in the config file.
 
 ### Upstream Configuration
 
@@ -84,8 +92,9 @@ timeout = 30                              # Request timeout in seconds
 
 ```toml
 [server]
-bind = "0.0.0.0:3000"                     # Bind address
-via_header = "akkoma-media-proxy/0.1.0"   # Via header value
+bind = "0.0.0.0:3000"                          # Bind address
+via_header = "akkoma-media-proxy/0.1.0"        # Via header value
+preserve_upstream_headers = true               # Preserve all headers from upstream (default: true)
 ```
 
 ### Cache Configuration
@@ -112,12 +121,13 @@ max_dimension = 4096     # Maximum image dimension
 1. **Request Filtering**: Only `/media` and `/proxy` paths are allowed
 2. **Cache Check**: Looks for cached response with the requested format
 3. **Upstream Fetch**: If not cached, fetches from upstream server
-4. **Image Conversion**: For images, converts to the best format based on `Accept` header:
+4. **Header Preservation**: All upstream headers (including Location for redirects) are preserved by default
+5. **Image Conversion**: For images, converts to the best format based on `Accept` header:
    - Prefers AVIF if `image/avif` is accepted
    - Falls back to WebP if `image/webp` is accepted
    - Otherwise returns original or JPEG
-5. **Caching**: Stores the converted response for future requests
-6. **Response**: Returns the optimized content with appropriate headers
+6. **Caching**: Stores the converted response for future requests
+7. **Response**: Returns the optimized content with appropriate headers
 
 ## Format Negotiation
 
@@ -176,9 +186,48 @@ UPSTREAM_URL=https://example.com cargo run
 
 ## Environment Variables
 
-- `CONFIG_PATH`: Path to configuration file (default: `config.toml`)
-- `UPSTREAM_URL`: Upstream server URL (used if config file not found)
+Environment variables have the **highest priority** and will override both command-line options and config file settings:
+
+- `UPSTREAM_URL`: Upstream server URL (overrides config file and CLI option)
+- `BIND_ADDRESS`: Server bind address (e.g., `0.0.0.0:3000`)
+- `PRESERVE_HEADERS`: Preserve upstream headers (`true` or `false`)
 - `RUST_LOG`: Logging level (e.g., `debug`, `info`, `warn`, `error`)
+
+### Command-line Options
+
+Command-line options have **medium priority** and will override config file settings:
+
+```bash
+akkoproxy [OPTIONS]
+
+Options:
+  -c, --config <FILE>          Path to configuration file
+  -u, --upstream <URL>         Upstream server URL
+  -b, --bind <ADDR>            Address to bind the server to
+  --enable-avif                Enable AVIF conversion
+  --disable-avif               Disable AVIF conversion
+  --enable-webp                Enable WebP conversion
+  --disable-webp               Disable WebP conversion
+  --preserve-headers           Preserve all headers from upstream
+  -h, --help                   Print help
+  -V, --version                Print version
+```
+
+### Configuration Precedence Example
+
+```bash
+# Config file: config.toml
+[upstream]
+url = "https://config-url.com"
+
+# Command line
+./akkoproxy --upstream https://cli-url.com
+
+# Environment variable
+UPSTREAM_URL=https://env-url.com ./akkoproxy --upstream https://cli-url.com
+
+# Result: https://env-url.com (environment has highest priority)
+```
 
 ## License
 

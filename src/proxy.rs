@@ -89,7 +89,7 @@ pub async fn proxy_handler(
             .status(StatusCode::MOVED_PERMANENTLY)
             .header(header::LOCATION, "https://github.com/BlockG-ws/akkoproxy")
             .body(Body::empty())
-            .unwrap());
+            .expect("Failed to build root redirect response"));
     }
     
     // Only handle /media and /proxy paths
@@ -147,12 +147,34 @@ pub async fn proxy_handler(
         })?;
     
     let status = response.status();
+    
+    // Handle non-success responses (redirects, errors, etc.)
+    // For non-2xx responses, preserve and forward the response with its status code
     if !status.is_success() {
-        warn!("Upstream returned non-success status: {}", status);
-        return Err(ProxyError::UpstreamStatusError(status.as_u16()));
+        debug!("Upstream returned non-success status: {}", status);
+        
+        // Preserve upstream headers
+        let upstream_headers = if state.config.server.preserve_upstream_headers {
+            Some(response.headers().clone())
+        } else {
+            None
+        };
+        
+        let body_bytes = response.bytes().await.map_err(|e| {
+            error!("Failed to read response body: {}", e);
+            ProxyError::UpstreamError(e)
+        })?;
+        
+        // Build response with the actual status code from upstream
+        return Ok(build_response_with_status(
+            body_bytes,
+            status,
+            &state.config.server.via_header,
+            upstream_headers.as_ref(),
+        ));
     }
     
-    // Preserve upstream headers if configured
+    // Preserve upstream headers if configured (for success responses)
     let upstream_headers = if state.config.server.preserve_upstream_headers {
         Some(response.headers().clone())
     } else {
@@ -280,7 +302,35 @@ fn build_response(
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Body::from(data))
-        .unwrap()
+        .expect("Failed to build response")
+}
+
+/// Build HTTP response with custom status code and headers
+fn build_response_with_status(
+    data: Bytes,
+    status: StatusCode,
+    via_header: &str,
+    upstream_headers: Option<&HeaderMap>,
+) -> Response {
+    let mut builder = Response::builder()
+        .status(status);
+    
+    // Add upstream headers if configured
+    if let Some(headers) = upstream_headers {
+        for (key, value) in headers.iter() {
+            // Skip headers that shouldn't be copied
+            if !EXCLUDED_HEADERS.contains(key) {
+                builder = builder.header(key, value);
+            }
+        }
+    }
+    
+    // Always add Via header
+    builder
+        .header(header::VIA, via_header)
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .body(Body::from(data))
+        .expect("Failed to build response with status")
 }
 
 /// Health check handler
@@ -309,7 +359,6 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
 pub enum ProxyError {
     PathNotAllowed,
     UpstreamError(reqwest::Error),
-    UpstreamStatusError(u16),
 }
 
 impl IntoResponse for ProxyError {
@@ -320,12 +369,6 @@ impl IntoResponse for ProxyError {
             }
             ProxyError::UpstreamError(e) => {
                 (StatusCode::BAD_GATEWAY, format!("Upstream error: {}", e))
-            }
-            ProxyError::UpstreamStatusError(code) => {
-                (
-                    StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_GATEWAY),
-                    format!("Upstream returned status: {}", code),
-                )
             }
         };
         

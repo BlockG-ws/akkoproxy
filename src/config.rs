@@ -34,7 +34,7 @@ pub struct ServerConfig {
     pub via_header: String,
     
     /// Preserve all headers from upstream
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub preserve_upstream_headers: bool,
 }
 
@@ -84,7 +84,7 @@ pub struct ImageConfig {
 
 // Default value functions
 fn default_bind_address() -> SocketAddr {
-    "0.0.0.0:3000".parse().unwrap()
+    "0.0.0.0:3000".parse().expect("Failed to parse default bind address")
 }
 
 fn default_via_header() -> String {
@@ -124,7 +124,7 @@ impl Default for ServerConfig {
         Self {
             bind: default_bind_address(),
             via_header: default_via_header(),
-            preserve_upstream_headers: false,
+            preserve_upstream_headers: true,
         }
     }
 }
@@ -164,6 +164,7 @@ impl Config {
     }
     
     /// Create a default configuration with a given upstream URL
+    #[cfg(test)]
     pub fn with_upstream(upstream_url: String) -> Self {
         Self {
             server: ServerConfig::default(),
@@ -176,8 +177,21 @@ impl Config {
         }
     }
     
+    /// Create a default configuration with empty upstream (to be filled later)
+    pub fn default_without_upstream() -> Self {
+        Self {
+            server: ServerConfig::default(),
+            upstream: UpstreamConfig {
+                url: String::new(),
+                timeout: default_timeout(),
+            },
+            cache: CacheConfig::default(),
+            image: ImageConfig::default(),
+        }
+    }
+    
     /// Validate configuration
-    fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         // Validate upstream URL
         url::Url::parse(&self.upstream.url)
             .context("Invalid upstream URL")?;
