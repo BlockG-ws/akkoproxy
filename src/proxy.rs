@@ -89,7 +89,7 @@ pub async fn proxy_handler(
             .status(StatusCode::MOVED_PERMANENTLY)
             .header(header::LOCATION, "https://github.com/BlockG-ws/akkoproxy")
             .body(Body::empty())
-            .unwrap());
+            .expect("Failed to build root redirect response"));
     }
     
     // Only handle /media and /proxy paths
@@ -302,7 +302,7 @@ fn build_response(
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Body::from(data))
-        .unwrap()
+        .expect("Failed to build response")
 }
 
 /// Build HTTP response with custom status code and headers
@@ -330,7 +330,7 @@ fn build_response_with_status(
         .header(header::VIA, via_header)
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Body::from(data))
-        .unwrap()
+        .expect("Failed to build response with status")
 }
 
 /// Health check handler

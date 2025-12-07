@@ -84,7 +84,7 @@ pub struct ImageConfig {
 
 // Default value functions
 fn default_bind_address() -> SocketAddr {
-    "0.0.0.0:3000".parse().unwrap()
+    "0.0.0.0:3000".parse().expect("Failed to parse default bind address")
 }
 
 fn default_via_header() -> String {
