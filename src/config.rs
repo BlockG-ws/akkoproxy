@@ -34,7 +34,7 @@ pub struct ServerConfig {
     pub via_header: String,
     
     /// Preserve all headers from upstream
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub preserve_upstream_headers: bool,
 }
 
@@ -124,7 +124,7 @@ impl Default for ServerConfig {
         Self {
             bind: default_bind_address(),
             via_header: default_via_header(),
-            preserve_upstream_headers: false,
+            preserve_upstream_headers: true,
         }
     }
 }
@@ -177,7 +177,7 @@ impl Config {
     }
     
     /// Validate configuration
-    fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         // Validate upstream URL
         url::Url::parse(&self.upstream.url)
             .context("Invalid upstream URL")?;

@@ -147,6 +147,33 @@ pub async fn proxy_handler(
         })?;
     
     let status = response.status();
+    
+    // Handle redirects and other non-2xx responses properly
+    // For redirects (3xx) and client/server errors, we should preserve and forward the response
+    if status.is_redirection() || status.is_client_error() || status.is_server_error() {
+        debug!("Upstream returned status: {}", status);
+        
+        // Preserve upstream headers for redirects
+        let upstream_headers = if state.config.server.preserve_upstream_headers {
+            Some(response.headers().clone())
+        } else {
+            None
+        };
+        
+        let body_bytes = response.bytes().await.map_err(|e| {
+            error!("Failed to read response body: {}", e);
+            ProxyError::UpstreamError(e)
+        })?;
+        
+        // Build response with the actual status code from upstream
+        return Ok(build_response_with_status(
+            body_bytes,
+            status,
+            &state.config.server.via_header,
+            upstream_headers.as_ref(),
+        ));
+    }
+    
     if !status.is_success() {
         warn!("Upstream returned non-success status: {}", status);
         return Err(ProxyError::UpstreamStatusError(status.as_u16()));
@@ -278,6 +305,34 @@ fn build_response(
         .header(header::CONTENT_TYPE, content_type)
         .header(header::VIA, via_header)
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .body(Body::from(data))
+        .unwrap()
+}
+
+/// Build HTTP response with custom status code and headers
+fn build_response_with_status(
+    data: Bytes,
+    status: StatusCode,
+    via_header: &str,
+    upstream_headers: Option<&HeaderMap>,
+) -> Response {
+    let mut builder = Response::builder()
+        .status(status);
+    
+    // Add upstream headers if configured
+    if let Some(headers) = upstream_headers {
+        for (key, value) in headers.iter() {
+            // Skip headers that shouldn't be copied
+            if !EXCLUDED_HEADERS.contains(key) {
+                builder = builder.header(key, value);
+            }
+        }
+    }
+    
+    // Always add Via header
+    builder
+        .header(header::VIA, via_header)
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Body::from(data))
         .unwrap()
