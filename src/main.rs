@@ -122,8 +122,8 @@ fn load_config(cli: &Cli) -> Result<Config> {
             info!("Loading configuration from: {}", config_path.display());
             Config::from_file(&config_path)?
         } else {
-            // No config file, start with defaults (will need upstream from env or CLI)
-            Config::with_upstream(String::new()) // Placeholder, will be overridden
+            // No config file, start with defaults (upstream will be set from env or CLI)
+            Config::default_without_upstream()
         }
     };
 

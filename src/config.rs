@@ -164,11 +164,25 @@ impl Config {
     }
     
     /// Create a default configuration with a given upstream URL
+    #[cfg(test)]
     pub fn with_upstream(upstream_url: String) -> Self {
         Self {
             server: ServerConfig::default(),
             upstream: UpstreamConfig {
                 url: upstream_url,
+                timeout: default_timeout(),
+            },
+            cache: CacheConfig::default(),
+            image: ImageConfig::default(),
+        }
+    }
+    
+    /// Create a default configuration with empty upstream (to be filled later)
+    pub fn default_without_upstream() -> Self {
+        Self {
+            server: ServerConfig::default(),
+            upstream: UpstreamConfig {
+                url: String::new(),
                 timeout: default_timeout(),
             },
             cache: CacheConfig::default(),

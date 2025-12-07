@@ -148,12 +148,12 @@ pub async fn proxy_handler(
     
     let status = response.status();
     
-    // Handle redirects and other non-2xx responses properly
-    // For redirects (3xx) and client/server errors, we should preserve and forward the response
-    if status.is_redirection() || status.is_client_error() || status.is_server_error() {
-        debug!("Upstream returned status: {}", status);
+    // Handle non-success responses (redirects, errors, etc.)
+    // For non-2xx responses, preserve and forward the response with its status code
+    if !status.is_success() {
+        debug!("Upstream returned non-success status: {}", status);
         
-        // Preserve upstream headers for redirects
+        // Preserve upstream headers
         let upstream_headers = if state.config.server.preserve_upstream_headers {
             Some(response.headers().clone())
         } else {
@@ -174,12 +174,7 @@ pub async fn proxy_handler(
         ));
     }
     
-    if !status.is_success() {
-        warn!("Upstream returned non-success status: {}", status);
-        return Err(ProxyError::UpstreamStatusError(status.as_u16()));
-    }
-    
-    // Preserve upstream headers if configured
+    // Preserve upstream headers if configured (for success responses)
     let upstream_headers = if state.config.server.preserve_upstream_headers {
         Some(response.headers().clone())
     } else {
@@ -364,7 +359,6 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
 pub enum ProxyError {
     PathNotAllowed,
     UpstreamError(reqwest::Error),
-    UpstreamStatusError(u16),
 }
 
 impl IntoResponse for ProxyError {
@@ -375,12 +369,6 @@ impl IntoResponse for ProxyError {
             }
             ProxyError::UpstreamError(e) => {
                 (StatusCode::BAD_GATEWAY, format!("Upstream error: {}", e))
-            }
-            ProxyError::UpstreamStatusError(code) => {
-                (
-                    StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_GATEWAY),
-                    format!("Upstream returned status: {}", code),
-                )
             }
         };
         
