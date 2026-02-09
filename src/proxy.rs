@@ -185,9 +185,23 @@ pub async fn proxy_handler(
     
     debug!("Cache miss for {}, fetching from upstream: {}", path, upstream_url);
     
+    // Build request with forwarded headers
+    let mut request_builder = state.client.get(&upstream_url);
+    
+    // Forward X-Forwarded-* headers from the incoming request to upstream
+    // This is essential for proper SSL/TLS handling when behind a reverse proxy
+    if let Some(forwarded_proto) = headers.get("x-forwarded-proto") {
+        request_builder = request_builder.header("X-Forwarded-Proto", forwarded_proto);
+    }
+    if let Some(forwarded_for) = headers.get("x-forwarded-for") {
+        request_builder = request_builder.header("X-Forwarded-For", forwarded_for);
+    }
+    if let Some(forwarded_host) = headers.get("x-forwarded-host") {
+        request_builder = request_builder.header("X-Forwarded-Host", forwarded_host);
+    }
+    
     // Fetch from upstream
-    let response = state.client
-        .get(&upstream_url)
+    let response = request_builder
         .send()
         .await
         .map_err(|e| {
