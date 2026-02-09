@@ -92,7 +92,8 @@ async fn main() -> Result<()> {
         .route("/metrics", get(metrics_handler))
         .fallback(proxy_handler)
         .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .with_state(state)
+        .into_make_service_with_connect_info::<SocketAddr>();
 
     // Start server
     let listener = tokio::net::TcpListener::bind(&config.server.bind)

@@ -6,11 +6,13 @@ use crate::image::{
 };
 use axum::{
     body::Body,
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::{header, HeaderMap, StatusCode, Uri},
     response::{IntoResponse, Response},
 };
 use bytes::Bytes;
+use ipnetwork::IpNetwork;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
@@ -55,6 +57,90 @@ fn build_vary_header(upstream_vary: Option<&str>) -> String {
         // No upstream Vary header, just use "Accept"
         "Accept".to_string()
     }
+}
+
+/// Check if an IP address is in the trusted proxy list
+fn is_trusted_proxy(ip: &IpAddr, trusted_proxies: &[String]) -> bool {
+    if trusted_proxies.is_empty() {
+        return false;
+    }
+
+    for proxy in trusted_proxies {
+        // Try parsing as a CIDR range
+        if let Ok(network) = proxy.parse::<IpNetwork>() {
+            if network.contains(*ip) {
+                return true;
+            }
+        }
+        // Try parsing as a single IP address
+        else if let Ok(proxy_ip) = proxy.parse::<IpAddr>() {
+            if proxy_ip == *ip {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Apply X-Forwarded headers to the upstream request builder
+/// Only honors headers from trusted proxies, otherwise derives from actual connection
+fn apply_forwarded_headers(
+    request_builder: reqwest::RequestBuilder,
+    headers: &HeaderMap,
+    client_ip: IpAddr,
+    config: &Config,
+) -> reqwest::RequestBuilder {
+    let mut builder = request_builder;
+
+    // Check if header forwarding is enabled
+    if !config.server.forward_headers_enabled {
+        debug!("X-Forwarded header forwarding is disabled");
+        return builder;
+    }
+
+    // Check if the client IP is trusted
+    let is_trusted = is_trusted_proxy(&client_ip, &config.server.trusted_proxies);
+
+    if is_trusted {
+        debug!("Client IP {} is trusted, forwarding X-Forwarded-* headers", client_ip);
+        
+        // Forward X-Forwarded-Proto if present
+        if let Some(forwarded_proto) = headers.get("x-forwarded-proto") {
+            builder = builder.header("X-Forwarded-Proto", forwarded_proto);
+        }
+        
+        // Forward X-Forwarded-For if present
+        if let Some(forwarded_for) = headers.get("x-forwarded-for") {
+            builder = builder.header("X-Forwarded-For", forwarded_for);
+        }
+        
+        // Forward X-Forwarded-Host if present
+        if let Some(forwarded_host) = headers.get("x-forwarded-host") {
+            builder = builder.header("X-Forwarded-Host", forwarded_host);
+        }
+    } else {
+        debug!("Client IP {} is not trusted, setting X-Forwarded-For from actual connection", client_ip);
+        
+        // Set X-Forwarded-For to the actual client IP
+        // If there's an existing X-Forwarded-For from an untrusted source, append to it
+        // (this preserves the chain but treats the untrusted part as the original client)
+        if let Some(existing_xff) = headers.get("x-forwarded-for") {
+            if let Ok(existing_value) = existing_xff.to_str() {
+                let new_value = format!("{}, {}", existing_value, client_ip);
+                builder = builder.header("X-Forwarded-For", new_value);
+            } else {
+                builder = builder.header("X-Forwarded-For", client_ip.to_string());
+            }
+        } else {
+            builder = builder.header("X-Forwarded-For", client_ip.to_string());
+        }
+
+        // Do not forward X-Forwarded-Proto or X-Forwarded-Host from untrusted sources
+        // Let the upstream derive these from the actual connection if needed
+    }
+
+    builder
 }
 
 /// Application state shared across handlers
@@ -122,6 +208,7 @@ impl AppState {
 
 /// Main proxy handler
 pub async fn proxy_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<AppState>,
     uri: Uri,
     headers: HeaderMap,
@@ -130,7 +217,7 @@ pub async fn proxy_handler(
     let path = uri.path();
     let query = uri.query().unwrap_or("");
 
-    debug!("Proxying request: {} {}", path, query);
+    debug!("Proxying request: {} {} from {}", path, query, addr);
 
     // Handle root path with redirect
     if path == "/" {
@@ -212,19 +299,15 @@ pub async fn proxy_handler(
     );
 
     // Build request with forwarded headers
-    let mut request_builder = state.client.get(&upstream_url);
-
-    // Forward X-Forwarded-* headers from the incoming request to upstream
-    // This is essential for proper SSL/TLS handling when behind a reverse proxy
-    if let Some(forwarded_proto) = headers.get("x-forwarded-proto") {
-        request_builder = request_builder.header("X-Forwarded-Proto", forwarded_proto);
-    }
-    if let Some(forwarded_for) = headers.get("x-forwarded-for") {
-        request_builder = request_builder.header("X-Forwarded-For", forwarded_for);
-    }
-    if let Some(forwarded_host) = headers.get("x-forwarded-host") {
-        request_builder = request_builder.header("X-Forwarded-Host", forwarded_host);
-    }
+    let request_builder = state.client.get(&upstream_url);
+    
+    // Apply X-Forwarded-* headers based on configuration and trust policy
+    let request_builder = apply_forwarded_headers(
+        request_builder,
+        &headers,
+        addr.ip(),
+        &state.config,
+    );
 
     // Fetch from upstream
     let response = request_builder.send().await.map_err(|e| {
@@ -866,5 +949,153 @@ mod tests {
             response.headers().get(header::VARY).unwrap(),
             "Accept, Origin"
         );
+    }
+
+    #[test]
+    fn test_is_trusted_proxy() {
+        // Test with empty trusted proxies list
+        let trusted_proxies: Vec<String> = vec![];
+        let ip = "192.168.1.1".parse::<IpAddr>().unwrap();
+        assert!(!is_trusted_proxy(&ip, &trusted_proxies));
+
+        // Test with single IP match
+        let trusted_proxies = vec!["192.168.1.1".to_string()];
+        let ip = "192.168.1.1".parse::<IpAddr>().unwrap();
+        assert!(is_trusted_proxy(&ip, &trusted_proxies));
+
+        // Test with single IP no match
+        let ip = "192.168.1.2".parse::<IpAddr>().unwrap();
+        assert!(!is_trusted_proxy(&ip, &trusted_proxies));
+
+        // Test with CIDR range match
+        let trusted_proxies = vec!["192.168.1.0/24".to_string()];
+        let ip = "192.168.1.100".parse::<IpAddr>().unwrap();
+        assert!(is_trusted_proxy(&ip, &trusted_proxies));
+
+        // Test with CIDR range no match
+        let ip = "192.168.2.100".parse::<IpAddr>().unwrap();
+        assert!(!is_trusted_proxy(&ip, &trusted_proxies));
+
+        // Test with multiple entries
+        let trusted_proxies = vec![
+            "10.0.0.0/8".to_string(),
+            "172.16.0.0/12".to_string(),
+            "192.168.1.1".to_string(),
+        ];
+        assert!(is_trusted_proxy(&"10.5.5.5".parse::<IpAddr>().unwrap(), &trusted_proxies));
+        assert!(is_trusted_proxy(&"172.20.1.1".parse::<IpAddr>().unwrap(), &trusted_proxies));
+        assert!(is_trusted_proxy(&"192.168.1.1".parse::<IpAddr>().unwrap(), &trusted_proxies));
+        assert!(!is_trusted_proxy(&"8.8.8.8".parse::<IpAddr>().unwrap(), &trusted_proxies));
+
+        // Test with IPv6
+        let trusted_proxies = vec!["::1".to_string(), "fe80::/10".to_string()];
+        assert!(is_trusted_proxy(&"::1".parse::<IpAddr>().unwrap(), &trusted_proxies));
+        assert!(is_trusted_proxy(&"fe80::1".parse::<IpAddr>().unwrap(), &trusted_proxies));
+        assert!(!is_trusted_proxy(&"2001:db8::1".parse::<IpAddr>().unwrap(), &trusted_proxies));
+    }
+
+    #[test]
+    fn test_apply_forwarded_headers_disabled() {
+        use reqwest::Client;
+        
+        let config = Config::with_upstream("https://example.com".to_string());
+        assert!(!config.server.forward_headers_enabled);
+
+        let client = Client::new();
+        let builder = client.get("https://example.com/test");
+        
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        headers.insert("x-forwarded-for", HeaderValue::from_static("1.2.3.4"));
+        headers.insert("x-forwarded-host", HeaderValue::from_static("example.org"));
+        
+        let client_ip = "10.0.0.1".parse::<IpAddr>().unwrap();
+        
+        let result_builder = apply_forwarded_headers(builder, &headers, client_ip, &config);
+        
+        // Headers should not be forwarded when disabled
+        let request = result_builder.build().unwrap();
+        assert!(request.headers().get("x-forwarded-proto").is_none());
+        assert!(request.headers().get("x-forwarded-for").is_none());
+        assert!(request.headers().get("x-forwarded-host").is_none());
+    }
+
+    #[test]
+    fn test_apply_forwarded_headers_from_trusted_proxy() {
+        use reqwest::Client;
+        
+        let mut config = Config::with_upstream("https://example.com".to_string());
+        config.server.forward_headers_enabled = true;
+        config.server.trusted_proxies = vec!["10.0.0.0/8".to_string()];
+
+        let client = Client::new();
+        let builder = client.get("https://example.com/test");
+        
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        headers.insert("x-forwarded-for", HeaderValue::from_static("1.2.3.4"));
+        headers.insert("x-forwarded-host", HeaderValue::from_static("example.org"));
+        
+        let client_ip = "10.0.0.1".parse::<IpAddr>().unwrap(); // Trusted
+        
+        let result_builder = apply_forwarded_headers(builder, &headers, client_ip, &config);
+        
+        // Headers should be forwarded from trusted proxy
+        let request = result_builder.build().unwrap();
+        assert_eq!(request.headers().get("x-forwarded-proto").unwrap(), "https");
+        assert_eq!(request.headers().get("x-forwarded-for").unwrap(), "1.2.3.4");
+        assert_eq!(request.headers().get("x-forwarded-host").unwrap(), "example.org");
+    }
+
+    #[test]
+    fn test_apply_forwarded_headers_from_untrusted_proxy() {
+        use reqwest::Client;
+        
+        let mut config = Config::with_upstream("https://example.com".to_string());
+        config.server.forward_headers_enabled = true;
+        config.server.trusted_proxies = vec!["10.0.0.0/8".to_string()];
+
+        let client = Client::new();
+        let builder = client.get("https://example.com/test");
+        
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        headers.insert("x-forwarded-for", HeaderValue::from_static("1.2.3.4"));
+        headers.insert("x-forwarded-host", HeaderValue::from_static("example.org"));
+        
+        let client_ip = "8.8.8.8".parse::<IpAddr>().unwrap(); // Untrusted
+        
+        let result_builder = apply_forwarded_headers(builder, &headers, client_ip, &config);
+        
+        // Proto and Host should not be forwarded from untrusted source
+        let request = result_builder.build().unwrap();
+        assert!(request.headers().get("x-forwarded-proto").is_none());
+        assert!(request.headers().get("x-forwarded-host").is_none());
+        
+        // X-Forwarded-For should be set to actual client IP (appended to existing)
+        let xff = request.headers().get("x-forwarded-for").unwrap().to_str().unwrap();
+        assert_eq!(xff, "1.2.3.4, 8.8.8.8");
+    }
+
+    #[test]
+    fn test_apply_forwarded_headers_no_existing_xff() {
+        use reqwest::Client;
+        
+        let mut config = Config::with_upstream("https://example.com".to_string());
+        config.server.forward_headers_enabled = true;
+        config.server.trusted_proxies = vec!["10.0.0.0/8".to_string()];
+
+        let client = Client::new();
+        let builder = client.get("https://example.com/test");
+        
+        let headers = HeaderMap::new(); // No X-Forwarded headers
+        
+        let client_ip = "8.8.8.8".parse::<IpAddr>().unwrap(); // Untrusted
+        
+        let result_builder = apply_forwarded_headers(builder, &headers, client_ip, &config);
+        
+        // X-Forwarded-For should be set to actual client IP
+        let request = result_builder.build().unwrap();
+        assert_eq!(request.headers().get("x-forwarded-for").unwrap(), "8.8.8.8");
     }
 }

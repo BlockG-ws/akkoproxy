@@ -43,6 +43,17 @@ pub struct ServerConfig {
     /// from the upstream request
     #[serde(default)]
     pub behind_cloudflare_free: bool,
+
+    /// Enable forwarding of X-Forwarded-* headers to upstream
+    /// When disabled, X-Forwarded-* headers from clients are ignored
+    #[serde(default)]
+    pub forward_headers_enabled: bool,
+
+    /// List of trusted proxy IP addresses or CIDR ranges
+    /// Only requests from these IPs will have their X-Forwarded-* headers honored
+    /// If empty and forward_headers_enabled is true, headers from all sources are trusted (not recommended)
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -135,6 +146,8 @@ impl Default for ServerConfig {
             via_header: default_via_header(),
             preserve_upstream_headers: true,
             behind_cloudflare_free: false,
+            forward_headers_enabled: false,
+            trusted_proxies: Vec::new(),
         }
     }
 }

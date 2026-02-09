@@ -5,7 +5,7 @@ A fast caching and optimization media proxy for Akkoma/Pleroma, built in Rust.
 ## Features
 
 - **Caching Reverse Proxy**: Caches media and proxy requests to reduce load on upstream servers
-- **X-Forwarded Headers Support**: Automatically forwards `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` headers to upstream, ensuring compatibility with Akkoma's `force_ssl` configuration
+- **Secure X-Forwarded Headers**: Opt-in forwarding of `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` headers with trusted proxy validation, ensuring compatibility with Akkoma's `force_ssl` configuration
 - **Header Preservation**: Preserves all upstream headers by default, including redirects (302) with Location headers
 - **Image Format Conversion**: Automatically converts images to modern formats (AVIF, WebP) based on client `Accept` headers
 - **Path Filtering**: Only handles `/media` and `/proxy` endpoints for security
@@ -97,6 +97,48 @@ bind = "0.0.0.0:3000"                          # Bind address
 via_header = "akkoma-media-proxy/0.1.1"        # Via header value
 preserve_upstream_headers = true               # Preserve all headers from upstream (default: true)
 behind_cloudflare_free = false                 # Enable Cloudflare Free plan compatibility (default: false)
+
+# X-Forwarded headers configuration (for SSL/TLS detection)
+forward_headers_enabled = false                # Enable X-Forwarded-* header forwarding (default: false)
+trusted_proxies = ["192.168.1.1", "10.0.0.0/8"] # Trusted proxy IPs/CIDRs (default: empty)
+```
+
+#### X-Forwarded Headers and Trusted Proxies
+
+**Important for Akkoma's `force_ssl` configuration:**
+
+When Akkoma has `force_ssl: [rewrite_on: [:x_forwarded_proto]]` enabled, it relies on the `X-Forwarded-Proto` header to detect HTTPS connections. To prevent infinite redirect loops, you need to configure header forwarding:
+
+1. **Enable header forwarding**: Set `forward_headers_enabled = true`
+2. **Configure trusted proxies**: List the IP addresses or CIDR ranges of your reverse proxy/load balancer in `trusted_proxies`
+
+**Security considerations:**
+- Only enable `forward_headers_enabled` if you're behind a reverse proxy (nginx, Cloudflare, etc.)
+- **Always** configure `trusted_proxies` - never leave it empty with forwarding enabled
+- Only requests from trusted IPs will have their `X-Forwarded-*` headers honored
+- Requests from untrusted sources will have headers derived from the actual connection
+
+**Example configurations:**
+
+```toml
+# Behind nginx on the same host
+[server]
+forward_headers_enabled = true
+trusted_proxies = ["127.0.0.1", "::1"]
+
+# Behind Cloudflare (use Cloudflare's IP ranges)
+[server]
+forward_headers_enabled = true
+trusted_proxies = [
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    # ... other Cloudflare ranges
+]
+
+# Behind a local reverse proxy
+[server]
+forward_headers_enabled = true
+trusted_proxies = ["192.168.1.1", "10.0.0.0/8"]
 ```
 
 #### Cloudflare Free Plan Compatibility
@@ -154,8 +196,9 @@ max_dimension = 4096     # Maximum image dimension
 1. **Request Filtering**: Only `/media` and `/proxy` paths are allowed
 2. **Cache Check**: Looks for cached response with the requested format
 3. **Upstream Fetch**: If not cached, fetches from upstream server
-   - Automatically forwards `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` headers
-   - This ensures proper SSL/TLS detection when Akkoma has `force_ssl` enabled
+   - **Secure header forwarding**: When enabled, forwards `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` headers only from trusted proxy sources
+   - **Untrusted protection**: Headers from untrusted sources are ignored or derived from the actual connection
+   - This ensures proper SSL/TLS detection when Akkoma has `force_ssl` enabled while preventing header spoofing
 4. **Header Preservation**: All upstream headers (including Location for redirects) are preserved by default
 5. **Image Conversion**: For images, converts to the best format based on `Accept` header:
    - Prefers AVIF if `image/avif` is accepted
