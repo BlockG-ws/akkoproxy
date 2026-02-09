@@ -114,7 +114,7 @@ When Akkoma has `force_ssl: [rewrite_on: [:x_forwarded_proto]]` enabled, it reli
 
 **Security considerations:**
 - Only enable `forward_headers_enabled` if you're behind a reverse proxy (nginx, Cloudflare, etc.)
-- **Always** configure `trusted_proxies` - never leave it empty with forwarding enabled
+- **Must** configure `trusted_proxies` with your proxy IPs - an empty list will prevent all header forwarding
 - Only requests from trusted IPs will have their `X-Forwarded-*` headers honored
 - Requests from untrusted sources will have headers derived from the actual connection
 

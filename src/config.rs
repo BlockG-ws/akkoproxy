@@ -51,7 +51,7 @@ pub struct ServerConfig {
 
     /// List of trusted proxy IP addresses or CIDR ranges
     /// Only requests from these IPs will have their X-Forwarded-* headers honored
-    /// If empty and forward_headers_enabled is true, headers from all sources are trusted (not recommended)
+    /// If empty, no headers will be forwarded (secure default)
     #[serde(default)]
     pub trusted_proxies: Vec<String>,
 }
