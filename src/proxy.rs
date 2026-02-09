@@ -122,19 +122,9 @@ fn apply_forwarded_headers(
     } else {
         debug!("Client IP {} is not trusted, setting X-Forwarded-For from actual connection", client_ip);
         
-        // Set X-Forwarded-For to the actual client IP
-        // If there's an existing X-Forwarded-For from an untrusted source, append to it
-        // (this preserves the chain but treats the untrusted part as the original client)
-        if let Some(existing_xff) = headers.get("x-forwarded-for") {
-            if let Ok(existing_value) = existing_xff.to_str() {
-                let new_value = format!("{}, {}", existing_value, client_ip);
-                builder = builder.header("X-Forwarded-For", new_value);
-            } else {
-                builder = builder.header("X-Forwarded-For", client_ip.to_string());
-            }
-        } else {
-            builder = builder.header("X-Forwarded-For", client_ip.to_string());
-        }
+        // Set X-Forwarded-For to the actual client IP only
+        // Do not preserve untrusted X-Forwarded-For headers as they could be spoofed
+        builder = builder.header("X-Forwarded-For", client_ip.to_string());
 
         // Do not forward X-Forwarded-Proto or X-Forwarded-Host from untrusted sources
         // Let the upstream derive these from the actual connection if needed
@@ -1072,9 +1062,9 @@ mod tests {
         assert!(request.headers().get("x-forwarded-proto").is_none());
         assert!(request.headers().get("x-forwarded-host").is_none());
         
-        // X-Forwarded-For should be set to actual client IP (appended to existing)
+        // X-Forwarded-For should be set to actual client IP only (not appending untrusted value)
         let xff = request.headers().get("x-forwarded-for").unwrap().to_str().unwrap();
-        assert_eq!(xff, "1.2.3.4, 8.8.8.8");
+        assert_eq!(xff, "8.8.8.8");
     }
 
     #[test]
