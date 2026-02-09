@@ -94,7 +94,7 @@ timeout = 30                              # Request timeout in seconds
 ```toml
 [server]
 bind = "0.0.0.0:3000"                          # Bind address
-via_header = "akkoma-media-proxy/0.1.0"        # Via header value
+via_header = "akkoma-media-proxy/0.1.1"        # Via header value
 preserve_upstream_headers = true               # Preserve all headers from upstream (default: true)
 behind_cloudflare_free = false                 # Enable Cloudflare Free plan compatibility (default: false)
 ```

@@ -13,7 +13,7 @@ timeout = 30
 bind = "0.0.0.0:3000"
 
 # Custom Via header value (default: akkoproxy/{version})
-via_header = "akkoproxy/0.1.0"
+via_header = "akkoproxy/0.1.1"
 
 # Preserve all headers from upstream when responding (default: true)
 preserve_upstream_headers = true
