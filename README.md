@@ -5,6 +5,7 @@ A fast caching and optimization media proxy for Akkoma/Pleroma, built in Rust.
 ## Features
 
 - **Caching Reverse Proxy**: Caches media and proxy requests to reduce load on upstream servers
+- **X-Forwarded Headers Support**: Automatically forwards `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` headers to upstream, ensuring compatibility with Akkoma's `force_ssl` configuration
 - **Header Preservation**: Preserves all upstream headers by default, including redirects (302) with Location headers
 - **Image Format Conversion**: Automatically converts images to modern formats (AVIF, WebP) based on client `Accept` headers
 - **Path Filtering**: Only handles `/media` and `/proxy` endpoints for security
@@ -153,6 +154,8 @@ max_dimension = 4096     # Maximum image dimension
 1. **Request Filtering**: Only `/media` and `/proxy` paths are allowed
 2. **Cache Check**: Looks for cached response with the requested format
 3. **Upstream Fetch**: If not cached, fetches from upstream server
+   - Automatically forwards `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` headers
+   - This ensures proper SSL/TLS detection when Akkoma has `force_ssl` enabled
 4. **Header Preservation**: All upstream headers (including Location for redirects) are preserved by default
 5. **Image Conversion**: For images, converts to the best format based on `Accept` header:
    - Prefers AVIF if `image/avif` is accepted

@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Example configuration files
 - Docker Compose example
 
+### Fixed
+- Fixed infinite redirect loop when Akkoma has `force_ssl: [rewrite_on: [:x_forwarded_proto]]` enabled by forwarding `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` headers to upstream
+
 ### Features
 - High-performance async I/O with Tokio
 - Intelligent caching with TTL and size limits
@@ -32,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CORS support
 - Gzip/Brotli compression
 - Security hardening (path restrictions, timeouts)
+- X-Forwarded headers support for proper SSL/TLS detection
 
 ## [0.1.0] - 2024-12-06
 
