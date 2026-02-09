@@ -39,20 +39,20 @@ impl ResponseCache {
             .time_to_live(ttl)
             .initial_capacity(100)
             .build();
-        
+
         Self { cache }
     }
-    
+
     /// Get a cached response
     pub async fn get(&self, key: &CacheKey) -> Option<Arc<CachedResponse>> {
         self.cache.get(key).await
     }
-    
+
     /// Store a response in the cache
     pub async fn put(&self, key: CacheKey, response: CachedResponse) {
         self.cache.insert(key, Arc::new(response)).await;
     }
-    
+
     /// Get cache statistics
     pub fn stats(&self) -> CacheStats {
         CacheStats {
@@ -77,16 +77,16 @@ mod tests {
     #[tokio::test]
     async fn test_cache_put_and_get() {
         let cache = ResponseCache::new(100, Duration::from_secs(60), 1024 * 1024);
-        
+
         let key = CacheKey::new("/media/test.jpg".to_string(), "avif".to_string());
         let response = CachedResponse {
             data: Bytes::from("test data"),
             content_type: "image/avif".to_string(),
             upstream_headers: None,
         };
-        
+
         cache.put(key.clone(), response.clone()).await;
-        
+
         let cached = cache.get(&key).await;
         assert!(cached.is_some());
         assert_eq!(cached.unwrap().content_type, "image/avif");
@@ -95,67 +95,64 @@ mod tests {
     #[tokio::test]
     async fn test_cache_miss() {
         let cache = ResponseCache::new(100, Duration::from_secs(60), 1024 * 1024);
-        
+
         let key = CacheKey::new("/media/nonexistent.jpg".to_string(), "webp".to_string());
         let cached = cache.get(&key).await;
-        
+
         assert!(cached.is_none());
     }
-    
+
     #[tokio::test]
     async fn test_cache_with_upstream_headers() {
         let cache = ResponseCache::new(100, Duration::from_secs(60), 1024 * 1024);
-        
+
         // Create headers to cache
         let mut headers = HeaderMap::new();
         headers.insert(
             HeaderName::from_static("x-custom-header"),
             HeaderValue::from_static("test-value"),
         );
-        
+
         let key = CacheKey::new("/media/test.jpg".to_string(), "avif".to_string());
         let response = CachedResponse {
             data: Bytes::from("test data"),
             content_type: "image/avif".to_string(),
             upstream_headers: Some(headers.clone()),
         };
-        
+
         cache.put(key.clone(), response.clone()).await;
-        
+
         let cached = cache.get(&key).await;
         assert!(cached.is_some());
         let cached = cached.unwrap();
         assert_eq!(cached.content_type, "image/avif");
         assert!(cached.upstream_headers.is_some());
-        
+
         let cached_headers = cached.upstream_headers.as_ref().unwrap();
-        assert_eq!(
-            cached_headers.get("x-custom-header").unwrap(),
-            "test-value"
-        );
+        assert_eq!(cached_headers.get("x-custom-header").unwrap(), "test-value");
     }
-    
+
     #[tokio::test]
     async fn test_cache_ttl() {
         // Create cache with 1 second TTL
         let cache = ResponseCache::new(100, Duration::from_secs(1), 1024 * 1024);
-        
+
         let key = CacheKey::new("/media/test.jpg".to_string(), "avif".to_string());
         let response = CachedResponse {
             data: Bytes::from("test data"),
             content_type: "image/avif".to_string(),
             upstream_headers: None,
         };
-        
+
         cache.put(key.clone(), response.clone()).await;
-        
+
         // Should be in cache immediately
         let cached = cache.get(&key).await;
         assert!(cached.is_some());
-        
+
         // Wait for TTL to expire
         tokio::time::sleep(Duration::from_secs(2)).await;
-        
+
         // Should be gone after TTL
         let cached = cache.get(&key).await;
         assert!(cached.is_none());

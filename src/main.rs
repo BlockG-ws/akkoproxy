@@ -4,10 +4,7 @@ mod image;
 mod proxy;
 
 use anyhow::{Context, Result};
-use axum::{
-    routing::get,
-    Router,
-};
+use axum::{routing::get, Router};
 use clap::Parser;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -74,14 +71,17 @@ async fn main() -> Result<()> {
 
     // Load configuration
     let config = load_config(&cli)?;
-    
+
     info!("Configuration loaded:");
     info!("  Bind address: {}", config.server.bind);
     info!("  Upstream URL: {}", config.upstream.url);
     info!("  Cache max capacity: {}", config.cache.max_capacity);
     info!("  AVIF conversion: {}", config.image.enable_avif);
     info!("  WebP conversion: {}", config.image.enable_webp);
-    info!("  Preserve upstream headers: {}", config.server.preserve_upstream_headers);
+    info!(
+        "  Preserve upstream headers: {}",
+        config.server.preserve_upstream_headers
+    );
 
     // Create application state
     let state = AppState::new(config.clone());
@@ -100,10 +100,8 @@ async fn main() -> Result<()> {
         .with_context(|| format!("Failed to bind to {}", config.server.bind))?;
 
     info!("Server listening on {}", config.server.bind);
-    
-    axum::serve(listener, app)
-        .await
-        .context("Server error")?;
+
+    axum::serve(listener, app).await.context("Server error")?;
 
     Ok(())
 }
@@ -129,10 +127,13 @@ fn load_config(cli: &Cli) -> Result<Config> {
 
     // Priority 2 (medium): Apply command-line options
     if let Some(upstream_url) = &cli.upstream {
-        info!("Overriding upstream URL from command line: {}", upstream_url);
+        info!(
+            "Overriding upstream URL from command line: {}",
+            upstream_url
+        );
         config.upstream.url = upstream_url.clone();
     }
-    
+
     if let Some(bind) = cli.bind {
         config.server.bind = bind;
     }
@@ -158,14 +159,14 @@ fn load_config(cli: &Cli) -> Result<Config> {
         info!("Overriding upstream URL from environment: {}", upstream_url);
         config.upstream.url = upstream_url;
     }
-    
+
     if let Ok(bind_str) = std::env::var("BIND_ADDRESS") {
         if let Ok(bind) = bind_str.parse() {
             info!("Overriding bind address from environment: {}", bind);
             config.server.bind = bind;
         }
     }
-    
+
     if let Ok(preserve) = std::env::var("PRESERVE_HEADERS") {
         if let Ok(value) = preserve.parse::<bool>() {
             info!("Overriding preserve_headers from environment: {}", value);
