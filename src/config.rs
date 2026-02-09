@@ -1,8 +1,8 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
-use anyhow::{Context, Result};
 
 /// Application configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -10,14 +10,14 @@ pub struct Config {
     /// Server configuration
     #[serde(default)]
     pub server: ServerConfig,
-    
+
     /// Upstream configuration
     pub upstream: UpstreamConfig,
-    
+
     /// Cache configuration
     #[serde(default)]
     pub cache: CacheConfig,
-    
+
     /// Image processing configuration
     #[serde(default)]
     pub image: ImageConfig,
@@ -28,28 +28,39 @@ pub struct ServerConfig {
     /// Address to bind to
     #[serde(default = "default_bind_address")]
     pub bind: SocketAddr,
-    
+
     /// Custom Via header value
     #[serde(default = "default_via_header")]
     pub via_header: String,
-    
+
     /// Preserve all headers from upstream
     #[serde(default = "default_true")]
     pub preserve_upstream_headers: bool,
-    
+
     /// Enable Cloudflare Free plan compatibility mode
     /// When enabled, the proxy will look for a 'format' query parameter
     /// and use it to determine output format (avif/webp), then strip it
     /// from the upstream request
     #[serde(default)]
     pub behind_cloudflare_free: bool,
+
+    /// Enable forwarding of X-Forwarded-* headers to upstream
+    /// When disabled, X-Forwarded-* headers from clients are ignored
+    #[serde(default)]
+    pub forward_headers_enabled: bool,
+
+    /// List of trusted proxy IP addresses or CIDR ranges
+    /// Only requests from these IPs will have their X-Forwarded-* headers honored
+    /// If empty, no headers will be forwarded (secure default)
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UpstreamConfig {
     /// Upstream server URL (e.g., "https://akkoma.example.com")
     pub url: String,
-    
+
     /// Timeout for upstream requests in seconds
     #[serde(default = "default_timeout")]
     pub timeout: u64,
@@ -60,11 +71,11 @@ pub struct CacheConfig {
     /// Maximum number of cached items
     #[serde(default = "default_max_capacity")]
     pub max_capacity: u64,
-    
+
     /// Time to live for cached items in seconds
     #[serde(default = "default_ttl")]
     pub ttl: u64,
-    
+
     /// Maximum size of a cached item in bytes
     #[serde(default = "default_max_item_size")]
     pub max_item_size: u64,
@@ -75,15 +86,15 @@ pub struct ImageConfig {
     /// Enable AVIF conversion
     #[serde(default = "default_true")]
     pub enable_avif: bool,
-    
+
     /// Enable WebP conversion
     #[serde(default = "default_true")]
     pub enable_webp: bool,
-    
+
     /// JPEG quality for conversions (1-100)
     #[serde(default = "default_quality")]
     pub quality: u8,
-    
+
     /// Maximum image dimensions for processing
     #[serde(default = "default_max_dimension")]
     pub max_dimension: u32,
@@ -91,7 +102,9 @@ pub struct ImageConfig {
 
 // Default value functions
 fn default_bind_address() -> SocketAddr {
-    "0.0.0.0:3000".parse().expect("Failed to parse default bind address")
+    "0.0.0.0:3000"
+        .parse()
+        .expect("Failed to parse default bind address")
 }
 
 fn default_via_header() -> String {
@@ -133,6 +146,8 @@ impl Default for ServerConfig {
             via_header: default_via_header(),
             preserve_upstream_headers: true,
             behind_cloudflare_free: false,
+            forward_headers_enabled: false,
+            trusted_proxies: Vec::new(),
         }
     }
 }
@@ -161,16 +176,15 @@ impl Default for ImageConfig {
 impl Config {
     /// Load configuration from a TOML file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let contents = fs::read_to_string(path)
-            .context("Failed to read configuration file")?;
-        
-        let config: Config = toml::from_str(&contents)
-            .context("Failed to parse configuration file")?;
-        
+        let contents = fs::read_to_string(path).context("Failed to read configuration file")?;
+
+        let config: Config =
+            toml::from_str(&contents).context("Failed to parse configuration file")?;
+
         config.validate()?;
         Ok(config)
     }
-    
+
     /// Create a default configuration with a given upstream URL
     #[cfg(test)]
     pub fn with_upstream(upstream_url: String) -> Self {
@@ -184,7 +198,7 @@ impl Config {
             image: ImageConfig::default(),
         }
     }
-    
+
     /// Create a default configuration with empty upstream (to be filled later)
     pub fn default_without_upstream() -> Self {
         Self {
@@ -197,18 +211,17 @@ impl Config {
             image: ImageConfig::default(),
         }
     }
-    
+
     /// Validate configuration
     pub fn validate(&self) -> Result<()> {
         // Validate upstream URL
-        url::Url::parse(&self.upstream.url)
-            .context("Invalid upstream URL")?;
-        
+        url::Url::parse(&self.upstream.url).context("Invalid upstream URL")?;
+
         // Validate quality
         if self.image.quality == 0 || self.image.quality > 100 {
             anyhow::bail!("Image quality must be between 1 and 100");
         }
-        
+
         Ok(())
     }
 }

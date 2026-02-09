@@ -1,6 +1,6 @@
 [package]
 name = "akkoproxy"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Akkoproxy Contributors"]
 description = "A fast caching and optimization media proxy for Akkoma/Pleroma"
@@ -40,6 +40,7 @@ futures = "0.3"
 http-body-util = "0.1"
 url = "2.5"
 clap = { version = "4.5", features = ["derive"] }
+ipnetwork = "0.20"
 
 [profile.release]
 opt-level = 3

@@ -7,36 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Initial release of Akkoma Media Proxy
-- Caching reverse proxy for Akkoma/Pleroma media
-- Automatic image format conversion (AVIF, WebP)
-- Content negotiation based on Accept headers
-- Path filtering for `/media` and `/proxy` endpoints
-- TOML-based configuration with sensible defaults
-- Environment variable configuration support
-- Docker support with multi-platform builds
-- GitHub Actions CI/CD pipeline
-- Health check endpoint (`/health`)
-- Metrics endpoint (`/metrics`)
-- Comprehensive documentation
-- Example configuration files
-- Docker Compose example
+## [0.1.1] - 2026-02-09
 
-### Features
-- High-performance async I/O with Tokio
-- Intelligent caching with TTL and size limits
-- Image quality and dimension controls
-- Configurable Via header
-- Connection pooling for upstream requests
-- CORS support
-- Gzip/Brotli compression
-- Security hardening (path restrictions, timeouts)
+### Fixed
+- Fixed infinite redirect loop when Akkoma has `force_ssl: [rewrite_on: [:x_forwarded_proto]]` enabled
+
+### Added
+- **Secure X-Forwarded headers support**: Opt-in forwarding of `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` headers with trusted proxy validation
+- Configuration options `forward_headers_enabled` and `trusted_proxies` for controlling header forwarding behavior
+- IP address and CIDR range matching for trusted proxy verification
+- Automatic header derivation from actual connection for untrusted sources
+- Comprehensive test suite for header forwarding and trusted proxy functionality
+
+### Security
+- X-Forwarded headers are now only honored from explicitly trusted proxy sources
+- Prevents header spoofing attacks by validating client IP against configured trusted proxies
+- Headers from untrusted sources are ignored or overwritten with actual connection information
 
 ## [0.1.0] - 2024-12-06
 
 ### Added
 - Initial implementation
 
-[Unreleased]: https://github.com/BlockG-ws/fantastic-computing-machine/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/BlockG-ws/fantastic-computing-machine/releases/tag/v0.1.0
+[Unreleased]: https://github.com/BlockG-ws/akkoproxy/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/BlockG-ws/akkoproxy/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/BlockG-ws/akkoproxy/releases/tag/v0.1.0

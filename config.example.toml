@@ -13,7 +13,7 @@ timeout = 30
 bind = "0.0.0.0:3000"
 
 # Custom Via header value (default: akkoproxy/{version})
-via_header = "akkoproxy/0.1.0"
+via_header = "akkoproxy/0.1.1"
 
 # Preserve all headers from upstream when responding (default: true)
 preserve_upstream_headers = true
@@ -26,6 +26,21 @@ preserve_upstream_headers = true
 #   - If: Accept header contains "image/avif"
 #   - Then: Add query parameter "format=avif"
 behind_cloudflare_free = false
+
+# Enable forwarding of X-Forwarded-* headers to upstream (default: false)
+# When enabled, X-Forwarded-Proto, X-Forwarded-For, and X-Forwarded-Host headers
+# will be forwarded to the upstream server based on the trusted_proxies configuration.
+# This is essential for proper SSL/TLS detection when Akkoma has force_ssl enabled.
+forward_headers_enabled = false
+
+# List of trusted proxy IP addresses or CIDR ranges (default: empty)
+# Only requests from these IPs will have their X-Forwarded-* headers honored.
+# If empty and forward_headers_enabled is true, no headers will be forwarded (secure default).
+# For untrusted sources, X-Forwarded-For will be set to the actual client IP.
+# Examples:
+#   trusted_proxies = ["192.168.1.1", "10.0.0.0/8", "172.16.0.0/12"]
+#   trusted_proxies = ["127.0.0.1", "::1"]  # localhost only
+trusted_proxies = []
 
 [cache]
 # Maximum number of cached items (default: 10000)
