@@ -52,6 +52,16 @@ ttl = 3600
 # Maximum size of a cached item in bytes (default: 10485760, 10MB)
 max_item_size = 10485760
 
+# Enable disk-based cache (default: false)
+# When enabled, cached media will be stored on disk for persistence across restarts
+disk_cache_enabled = false
+
+# Path to disk cache directory (default: ./cache)
+disk_cache_path = "./cache"
+
+# Maximum disk cache size in bytes (default: 1073741824, 1GB)
+disk_cache_max_size = 1073741824
+
 [image]
 # Enable AVIF conversion (default: true)
 enable_avif = true

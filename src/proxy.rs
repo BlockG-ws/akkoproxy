@@ -149,11 +149,41 @@ impl AppState {
             config.server.bind, config.upstream.url
         );
 
-        let cache = ResponseCache::new(
-            config.cache.max_capacity,
-            Duration::from_secs(config.cache.ttl),
-            config.cache.max_item_size,
-        );
+        // Initialize cache with optional disk cache support
+        let cache = if config.cache.disk_cache_enabled {
+            match crate::disk_cache::DiskCache::new(
+                &config.cache.disk_cache_path,
+                config.cache.disk_cache_max_size,
+                config.cache.ttl,
+            ) {
+                Ok(disk_cache) => {
+                    info!(
+                        "Disk cache enabled: path={}, max_size={} bytes",
+                        config.cache.disk_cache_path, config.cache.disk_cache_max_size
+                    );
+                    ResponseCache::new_with_disk_cache(
+                        config.cache.max_capacity,
+                        Duration::from_secs(config.cache.ttl),
+                        config.cache.max_item_size,
+                        disk_cache,
+                    )
+                }
+                Err(e) => {
+                    warn!("Failed to initialize disk cache: {}. Using memory-only cache.", e);
+                    ResponseCache::new(
+                        config.cache.max_capacity,
+                        Duration::from_secs(config.cache.ttl),
+                        config.cache.max_item_size,
+                    )
+                }
+            }
+        } else {
+            ResponseCache::new(
+                config.cache.max_capacity,
+                Duration::from_secs(config.cache.ttl),
+                config.cache.max_item_size,
+            )
+        };
         debug!(
             "Cache initialized: max_capacity={}, ttl={}s, max_item_size={} bytes",
             config.cache.max_capacity, config.cache.ttl, config.cache.max_item_size
@@ -590,10 +620,21 @@ pub async fn health_handler() -> impl IntoResponse {
 /// Metrics handler
 pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
     let stats = state.cache.stats();
-    let body = format!(
-        "# Cache Statistics\ncache_entries {}\ncache_size_bytes {}\n",
-        stats.entry_count, stats.weighted_size
+    let mut body = format!(
+        "# Cache Statistics\ncache_entries {}\ncache_size_bytes {}\ndisk_cache_enabled {}\n",
+        stats.entry_count, 
+        stats.weighted_size,
+        if stats.disk_cache_enabled { 1 } else { 0 }
     );
+
+    if let Some(disk_stats) = stats.disk_stats {
+        body.push_str(&format!(
+            "disk_cache_files {}\ndisk_cache_size_bytes {}\ndisk_cache_max_size_bytes {}\n",
+            disk_stats.file_count,
+            disk_stats.total_size,
+            disk_stats.max_size
+        ));
+    }
 
     (
         StatusCode::OK,
