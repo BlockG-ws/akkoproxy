@@ -52,6 +52,30 @@ struct Cli {
     /// Preserve all headers from upstream when responding
     #[arg(long)]
     preserve_headers: bool,
+
+    /// Enable forwarding of X-Forwarded-* headers to upstream
+    #[arg(long)]
+    forward_headers: bool,
+
+    /// Disable forwarding of X-Forwarded-* headers to upstream
+    #[arg(long, conflicts_with = "forward_headers")]
+    no_forward_headers: bool,
+
+    /// Enable disk-based cache
+    #[arg(long)]
+    disk_cache: bool,
+
+    /// Disable disk-based cache
+    #[arg(long, conflicts_with = "disk_cache")]
+    no_disk_cache: bool,
+
+    /// Path to disk cache directory
+    #[arg(long, value_name = "PATH")]
+    disk_cache_path: Option<PathBuf>,
+
+    /// Maximum disk cache size (e.g., "1G", "500M", "1GiB")
+    #[arg(long, value_name = "SIZE")]
+    disk_cache_max_size: Option<String>,
 }
 
 #[tokio::main]
@@ -156,6 +180,29 @@ fn load_config(cli: &Cli) -> Result<Config> {
         config.server.preserve_upstream_headers = true;
     }
 
+    if cli.forward_headers {
+        config.server.forward_headers_enabled = true;
+    } else if cli.no_forward_headers {
+        config.server.forward_headers_enabled = false;
+    }
+
+    if cli.disk_cache {
+        config.cache.disk_cache_enabled = true;
+    } else if cli.no_disk_cache {
+        config.cache.disk_cache_enabled = false;
+    }
+
+    if let Some(ref path) = cli.disk_cache_path {
+        config.cache.disk_cache_path = path.to_string_lossy().to_string();
+    }
+
+    if let Some(ref size_str) = cli.disk_cache_max_size {
+        match size_str.parse::<bytesize::ByteSize>() {
+            Ok(size) => config.cache.disk_cache_max_size = size.as_u64(),
+            Err(e) => anyhow::bail!("Invalid disk cache max size '{}': {}", size_str, e),
+        }
+    }
+
     // Priority 1 (highest): Apply environment variables
     if let Ok(upstream_url) = std::env::var("UPSTREAM_URL") {
         info!("Overriding upstream URL from environment: {}", upstream_url);
@@ -173,6 +220,35 @@ fn load_config(cli: &Cli) -> Result<Config> {
         if let Ok(value) = preserve.parse::<bool>() {
             info!("Overriding preserve_headers from environment: {}", value);
             config.server.preserve_upstream_headers = value;
+        }
+    }
+
+    if let Ok(forward_headers) = std::env::var("FORWARD_HEADERS_ENABLED") {
+        if let Ok(value) = forward_headers.parse::<bool>() {
+            info!("Overriding forward_headers_enabled from environment: {}", value);
+            config.server.forward_headers_enabled = value;
+        }
+    }
+
+    if let Ok(disk_cache) = std::env::var("DISK_CACHE_ENABLED") {
+        if let Ok(value) = disk_cache.parse::<bool>() {
+            info!("Overriding disk_cache_enabled from environment: {}", value);
+            config.cache.disk_cache_enabled = value;
+        }
+    }
+
+    if let Ok(path) = std::env::var("DISK_CACHE_PATH") {
+        info!("Overriding disk_cache_path from environment: {}", path);
+        config.cache.disk_cache_path = path;
+    }
+
+    if let Ok(size_str) = std::env::var("DISK_CACHE_MAX_SIZE") {
+        match size_str.parse::<bytesize::ByteSize>() {
+            Ok(size) => {
+                info!("Overriding disk_cache_max_size from environment: {}", size);
+                config.cache.disk_cache_max_size = size.as_u64();
+            }
+            Err(e) => anyhow::bail!("Invalid DISK_CACHE_MAX_SIZE '{}': {}", size_str, e),
         }
     }
 
