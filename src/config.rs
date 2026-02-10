@@ -1,8 +1,31 @@
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
+
+/// Deserialize a size that can be either a number (bytes) or a human-readable string like "10M", "1G"
+fn deserialize_size<'de, D>(deserializer: D) -> std::result::Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum SizeValue {
+        Numeric(u64),
+        String(String),
+    }
+
+    match SizeValue::deserialize(deserializer)? {
+        SizeValue::Numeric(n) => Ok(n),
+        SizeValue::String(s) => {
+            // Try to parse as a human-readable size using bytesize
+            s.parse::<bytesize::ByteSize>()
+                .map(|bs| bs.as_u64())
+                .map_err(serde::de::Error::custom)
+        }
+    }
+}
 
 /// Application configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -77,7 +100,7 @@ pub struct CacheConfig {
     pub ttl: u64,
 
     /// Maximum size of a cached item in bytes
-    #[serde(default = "default_max_item_size")]
+    #[serde(default = "default_max_item_size", deserialize_with = "deserialize_size")]
     pub max_item_size: u64,
 
     /// Enable disk-based cache (default: false)
@@ -89,7 +112,7 @@ pub struct CacheConfig {
     pub disk_cache_path: String,
 
     /// Maximum disk cache size in bytes (default: 1GB)
-    #[serde(default = "default_disk_cache_max_size")]
+    #[serde(default = "default_disk_cache_max_size", deserialize_with = "deserialize_size")]
     pub disk_cache_max_size: u64,
 }
 
@@ -259,5 +282,69 @@ mod tests {
         assert_eq!(config.upstream.url, "https://example.com");
         assert!(config.image.enable_avif);
         assert!(config.image.enable_webp);
+    }
+
+    #[test]
+    fn test_parse_size_numeric() {
+        let toml = r#"
+            [upstream]
+            url = "https://example.com"
+            
+            [cache]
+            max_item_size = 10485760
+            disk_cache_max_size = 1073741824
+        "#;
+        
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.cache.max_item_size, 10485760);
+        assert_eq!(config.cache.disk_cache_max_size, 1073741824);
+    }
+
+    #[test]
+    fn test_parse_size_human_readable() {
+        let toml = r#"
+            [upstream]
+            url = "https://example.com"
+            
+            [cache]
+            max_item_size = "10MiB"
+            disk_cache_max_size = "1GiB"
+        "#;
+        
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.cache.max_item_size, 10 * 1024 * 1024);
+        assert_eq!(config.cache.disk_cache_max_size, 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_parse_size_various_formats() {
+        let toml = r#"
+            [upstream]
+            url = "https://example.com"
+            
+            [cache]
+            max_item_size = "5MB"
+            disk_cache_max_size = "2GB"
+        "#;
+        
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.cache.max_item_size, 5 * 1000 * 1000);
+        assert_eq!(config.cache.disk_cache_max_size, 2 * 1000 * 1000 * 1000);
+    }
+
+    #[test]
+    fn test_parse_size_kilobytes() {
+        let toml = r#"
+            [upstream]
+            url = "https://example.com"
+            
+            [cache]
+            max_item_size = "512KiB"
+            disk_cache_max_size = "100KB"
+        "#;
+        
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.cache.max_item_size, 512 * 1024);
+        assert_eq!(config.cache.disk_cache_max_size, 100 * 1000);
     }
 }

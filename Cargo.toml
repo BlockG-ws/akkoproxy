@@ -1,6 +1,6 @@
 [package]
 name = "akkoproxy"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 authors = ["Akkoproxy Contributors"]
 description = "A fast caching and optimization media proxy for Akkoma/Pleroma"
@@ -27,6 +27,7 @@ libavif = { version = "0.12", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
+bytesize = "2.3"
 
 # Caching
 moka = { version = "0.12", features = ["future"] }

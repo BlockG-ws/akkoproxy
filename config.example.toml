@@ -49,8 +49,10 @@ max_capacity = 10000
 # Time to live for cached items in seconds (default: 3600)
 ttl = 3600
 
-# Maximum size of a cached item in bytes (default: 10485760, 10MB)
-max_item_size = 10485760
+# Maximum size of a cached item in bytes (default: 10485760, 10MiB)
+# Supports human-readable formats: "10M", "10MB", "10MiB", "1G", "1GB", "1GiB", etc.
+# Note: M/MB uses base 10 (1000^2), MiB uses base 2 (1024^2)
+max_item_size = "10MiB"
 
 # Enable disk-based cache (default: false)
 # When enabled, cached media will be stored on disk for persistence across restarts
@@ -60,7 +62,9 @@ disk_cache_enabled = false
 disk_cache_path = "./cache"
 
 # Maximum disk cache size in bytes (default: 1073741824, 1GB)
-disk_cache_max_size = 1073741824
+# Supports human-readable formats: "10M", "10MB", "10MiB", "1G", "1GB", "1GiB", etc.
+# Note: G/GB uses base 10 (1000^3), GiB uses base 2 (1024^3)
+disk_cache_max_size = "1GiB"
 
 [image]
 # Enable AVIF conversion (default: true)
