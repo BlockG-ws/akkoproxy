@@ -1,3 +1,26 @@
+//! Disk-based cache for media files
+//!
+//! This module provides a persistent, nginx-like disk cache for media content.
+//! The cache stores files using SHA-256 hashed keys and supports automatic
+//! TTL-based expiration and LRU eviction.
+//!
+//! # Features
+//!
+//! - **Persistent storage**: Cached media survives server restarts
+//! - **Automatic cleanup**: LRU eviction when disk space limit is reached
+//! - **TTL support**: Respects configured TTL using file modification times
+//! - **Atomic writes**: Uses temporary files to prevent corruption
+//! - **Subdirectory structure**: Organizes files to avoid too many in one directory
+//!
+//! # Limitations
+//!
+//! The disk cache stores only:
+//! - Media content (bytes)
+//! - Content-Type header
+//!
+//! Other upstream headers are NOT stored in the disk cache. They are only
+//! preserved in the memory cache.
+
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use sha2::{Digest, Sha256};

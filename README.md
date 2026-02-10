@@ -196,6 +196,8 @@ disk_cache_max_size = 1073741824        # Maximum disk cache size in bytes (defa
 - **Atomic writes**: Prevents cache corruption from incomplete writes
 - **TTL support**: Respects the configured TTL for expiration
 
+**Note**: The disk cache stores only the media content and content-type. Upstream headers are preserved only in the memory cache. When a disk cache hit is promoted to memory, it will not include the original upstream headers.
+
 ### Image Processing Configuration
 
 ```toml
