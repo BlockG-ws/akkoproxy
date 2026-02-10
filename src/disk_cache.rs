@@ -135,12 +135,30 @@ impl DiskCache {
         }
 
         // Write data to a temporary file first (atomic write)
-        let temp_path = cache_path.with_extension("data.tmp");
+        let temp_path = {
+            let file_name = cache_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("data");
+            cache_path
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .join(format!("{}.tmp", file_name))
+        };
         fs::write(&temp_path, &data)
             .with_context(|| format!("Failed to write cache file: {:?}", temp_path))?;
 
         // Write metadata to a temporary file
-        let temp_metadata_path = metadata_path.with_extension("meta.tmp");
+        let temp_metadata_path = {
+            let file_name = metadata_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("meta");
+            metadata_path
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .join(format!("{}.tmp", file_name))
+        };
         fs::write(&temp_metadata_path, &content_type)
             .with_context(|| format!("Failed to write metadata file: {:?}", temp_metadata_path))?;
 
