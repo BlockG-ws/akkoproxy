@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-02-10
+
+### Added
+- **Human-readable size formats**: Configuration options `max_item_size` and `disk_cache_max_size` now support human-readable formats like "10M", "1G", "10MiB", "1GiB", etc.
+  - Supports both decimal (MB, GB) and binary (MiB, GiB) units
+  - Backward compatible with numeric byte values
+- **Command-line options for cache settings**:
+  - `--forward-headers` / `--no-forward-headers`: Enable/disable X-Forwarded-* header forwarding
+  - `--disk-cache` / `--no-disk-cache`: Enable/disable disk-based cache
+  - `--disk-cache-path <PATH>`: Specify disk cache directory
+  - `--disk-cache-max-size <SIZE>`: Set maximum disk cache size with human-readable format support
+- **Environment variables for cache settings**:
+  - `FORWARD_HEADERS_ENABLED`: Enable/disable X-Forwarded-* header forwarding (true/false)
+  - `DISK_CACHE_ENABLED`: Enable/disable disk-based cache (true/false)
+  - `DISK_CACHE_PATH`: Specify disk cache directory path
+  - `DISK_CACHE_MAX_SIZE`: Set maximum disk cache size with human-readable format support
+
+### Changed
+- Bumped version from 0.1.2 to 0.2.0
+
 ## [0.1.2] - 2026-02-10
 
 ### Added
@@ -45,7 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial implementation
 
-[Unreleased]: https://github.com/BlockG-ws/akkoproxy/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/BlockG-ws/akkoproxy/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/BlockG-ws/akkoproxy/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/BlockG-ws/akkoproxy/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/BlockG-ws/akkoproxy/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/BlockG-ws/akkoproxy/releases/tag/v0.1.0
