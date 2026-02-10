@@ -3,6 +3,7 @@ use bytes::Bytes;
 use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::warn;
 
 use crate::disk_cache::DiskCache;
 
@@ -53,7 +54,6 @@ impl ResponseCache {
     pub fn new_with_disk_cache(
         max_capacity: u64, 
         ttl: Duration, 
-        _max_item_size: u64,
         disk_cache: DiskCache
     ) -> Self {
         let cache = Cache::builder()
@@ -100,8 +100,10 @@ impl ResponseCache {
 
         // If disk cache is enabled, store there too
         if let Some(disk_cache) = &self.disk_cache {
-            // Store to disk cache (ignore errors as memory cache is primary)
-            let _ = disk_cache.put(&key, response.data, response.content_type).await;
+            // Store to disk cache and log any errors
+            if let Err(e) = disk_cache.put(&key, response.data, response.content_type).await {
+                warn!("Failed to write to disk cache: {}", e);
+            }
         }
     }
 

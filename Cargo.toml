@@ -25,6 +25,7 @@ libavif = { version = "0.12", optional = true }
 
 # Configuration
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8"
 
 # Caching
