@@ -1,5 +1,6 @@
 mod cache;
 mod config;
+mod disk_cache;
 mod image;
 mod proxy;
 

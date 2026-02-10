@@ -79,6 +79,18 @@ pub struct CacheConfig {
     /// Maximum size of a cached item in bytes
     #[serde(default = "default_max_item_size")]
     pub max_item_size: u64,
+
+    /// Enable disk-based cache (default: false)
+    #[serde(default)]
+    pub disk_cache_enabled: bool,
+
+    /// Path to disk cache directory (default: ./cache)
+    #[serde(default = "default_disk_cache_path")]
+    pub disk_cache_path: String,
+
+    /// Maximum disk cache size in bytes (default: 1GB)
+    #[serde(default = "default_disk_cache_max_size")]
+    pub disk_cache_max_size: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -139,6 +151,14 @@ fn default_max_dimension() -> u32 {
     4096
 }
 
+fn default_disk_cache_path() -> String {
+    "./cache".to_string()
+}
+
+fn default_disk_cache_max_size() -> u64 {
+    1024 * 1024 * 1024 // 1GB
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -158,6 +178,9 @@ impl Default for CacheConfig {
             max_capacity: default_max_capacity(),
             ttl: default_ttl(),
             max_item_size: default_max_item_size(),
+            disk_cache_enabled: false,
+            disk_cache_path: default_disk_cache_path(),
+            disk_cache_max_size: default_disk_cache_max_size(),
         }
     }
 }

@@ -4,6 +4,8 @@ use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::disk_cache::DiskCache;
+
 /// Cache key for storing responses
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct CacheKey {
@@ -29,6 +31,7 @@ pub struct CachedResponse {
 #[derive(Clone)]
 pub struct ResponseCache {
     cache: Cache<CacheKey, Arc<CachedResponse>>,
+    disk_cache: Option<DiskCache>,
 }
 
 impl ResponseCache {
@@ -40,17 +43,66 @@ impl ResponseCache {
             .initial_capacity(100)
             .build();
 
-        Self { cache }
+        Self { 
+            cache,
+            disk_cache: None,
+        }
+    }
+
+    /// Create a new response cache with disk cache support
+    pub fn new_with_disk_cache(
+        max_capacity: u64, 
+        ttl: Duration, 
+        _max_item_size: u64,
+        disk_cache: DiskCache
+    ) -> Self {
+        let cache = Cache::builder()
+            .max_capacity(max_capacity)
+            .time_to_live(ttl)
+            .initial_capacity(100)
+            .build();
+
+        Self { 
+            cache,
+            disk_cache: Some(disk_cache),
+        }
     }
 
     /// Get a cached response
     pub async fn get(&self, key: &CacheKey) -> Option<Arc<CachedResponse>> {
-        self.cache.get(key).await
+        // First, check memory cache
+        if let Some(cached) = self.cache.get(key).await {
+            return Some(cached);
+        }
+
+        // If not in memory and disk cache is enabled, check disk
+        if let Some(disk_cache) = &self.disk_cache {
+            if let Some((data, content_type)) = disk_cache.get(key).await {
+                // Found in disk cache, promote to memory cache
+                let response = CachedResponse {
+                    data,
+                    content_type,
+                    upstream_headers: None, // Note: disk cache doesn't store headers
+                };
+                let arc_response = Arc::new(response);
+                self.cache.insert(key.clone(), arc_response.clone()).await;
+                return Some(arc_response);
+            }
+        }
+
+        None
     }
 
     /// Store a response in the cache
     pub async fn put(&self, key: CacheKey, response: CachedResponse) {
-        self.cache.insert(key, Arc::new(response)).await;
+        // Store in memory cache
+        self.cache.insert(key.clone(), Arc::new(response.clone())).await;
+
+        // If disk cache is enabled, store there too
+        if let Some(disk_cache) = &self.disk_cache {
+            // Store to disk cache (ignore errors as memory cache is primary)
+            let _ = disk_cache.put(&key, response.data, response.content_type).await;
+        }
     }
 
     /// Get cache statistics
@@ -58,6 +110,8 @@ impl ResponseCache {
         CacheStats {
             entry_count: self.cache.entry_count(),
             weighted_size: self.cache.weighted_size(),
+            disk_cache_enabled: self.disk_cache.is_some(),
+            disk_stats: self.disk_cache.as_ref().map(|dc| dc.stats()),
         }
     }
 }
@@ -67,6 +121,8 @@ impl ResponseCache {
 pub struct CacheStats {
     pub entry_count: u64,
     pub weighted_size: u64,
+    pub disk_cache_enabled: bool,
+    pub disk_stats: Option<crate::disk_cache::DiskCacheStats>,
 }
 
 #[cfg(test)]
