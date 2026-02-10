@@ -180,12 +180,16 @@ This setup allows Cloudflare to cache different formats separately based on the 
 [cache]
 max_capacity = 10000       # Maximum number of cached items in memory
 ttl = 3600                # Cache TTL in seconds (1 hour)
-max_item_size = 10485760   # Maximum cacheable item size (10MB)
+max_item_size = "10MiB"   # Maximum cacheable item size (default: 10MiB)
+                          # Supports human-readable formats: "10M", "10MB", "10MiB", etc.
+                          # Also accepts numeric byte values: 10485760
 
 # Optional nginx-like disk cache for persistence across restarts
 disk_cache_enabled = false              # Enable disk-based cache (default: false)
 disk_cache_path = "./cache"             # Path to disk cache directory (default: ./cache)
-disk_cache_max_size = 1073741824        # Maximum disk cache size in bytes (default: 1GB)
+disk_cache_max_size = "1GiB"            # Maximum disk cache size (default: 1GiB)
+                                        # Supports human-readable formats: "1G", "1GB", "1GiB", etc.
+                                        # Also accepts numeric byte values: 1073741824
 ```
 
 **Disk Cache Features:**
