@@ -132,6 +132,14 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Parse a human-readable size string into bytes
+fn parse_size(size_str: &str, context: &str) -> Result<u64> {
+    let size = size_str
+        .parse::<bytesize::ByteSize>()
+        .map_err(|e| anyhow::anyhow!("Invalid {} '{}': {}", context, size_str, e))?;
+    Ok(size.as_u64())
+}
+
 /// Load configuration with priority: env > cmdline options > config file
 fn load_config(cli: &Cli) -> Result<Config> {
     // Priority 3 (lowest): Load from config file if it exists
@@ -197,10 +205,7 @@ fn load_config(cli: &Cli) -> Result<Config> {
     }
 
     if let Some(ref size_str) = cli.disk_cache_max_size {
-        match size_str.parse::<bytesize::ByteSize>() {
-            Ok(size) => config.cache.disk_cache_max_size = size.as_u64(),
-            Err(e) => anyhow::bail!("Invalid disk cache max size '{}': {}", size_str, e),
-        }
+        config.cache.disk_cache_max_size = parse_size(size_str, "disk cache max size")?;
     }
 
     // Priority 1 (highest): Apply environment variables
@@ -243,13 +248,9 @@ fn load_config(cli: &Cli) -> Result<Config> {
     }
 
     if let Ok(size_str) = std::env::var("DISK_CACHE_MAX_SIZE") {
-        match size_str.parse::<bytesize::ByteSize>() {
-            Ok(size) => {
-                info!("Overriding disk_cache_max_size from environment: {}", size);
-                config.cache.disk_cache_max_size = size.as_u64();
-            }
-            Err(e) => anyhow::bail!("Invalid DISK_CACHE_MAX_SIZE '{}': {}", size_str, e),
-        }
+        let size = parse_size(&size_str, "DISK_CACHE_MAX_SIZE")?;
+        info!("Overriding disk_cache_max_size from environment: {}", bytesize::ByteSize(size));
+        config.cache.disk_cache_max_size = size;
     }
 
     // Validate that we have an upstream URL
