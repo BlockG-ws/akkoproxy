@@ -5,6 +5,8 @@ A fast caching and optimization media proxy for Akkoma/Pleroma, built in Rust.
 ## Features
 
 - **Caching Reverse Proxy**: Caches media and proxy requests to reduce load on upstream servers
+  - In-memory LRU cache for fast access
+  - Optional nginx-like disk cache for persistence across restarts
 - **Secure X-Forwarded Headers**: Opt-in forwarding of `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` headers with trusted proxy validation, ensuring compatibility with Akkoma's `force_ssl` configuration
 - **Header Preservation**: Preserves all upstream headers by default, including redirects (302) with Location headers
 - **Image Format Conversion**: Automatically converts images to modern formats (AVIF, WebP) based on client `Accept` headers
@@ -176,10 +178,23 @@ This setup allows Cloudflare to cache different formats separately based on the 
 
 ```toml
 [cache]
-max_capacity = 10000      # Maximum number of cached items
-ttl = 3600               # Cache TTL in seconds (1 hour)
-max_item_size = 10485760  # Maximum cacheable item size (10MB)
+max_capacity = 10000       # Maximum number of cached items in memory
+ttl = 3600                # Cache TTL in seconds (1 hour)
+max_item_size = 10485760   # Maximum cacheable item size (10MB)
+
+# Optional nginx-like disk cache for persistence across restarts
+disk_cache_enabled = false              # Enable disk-based cache (default: false)
+disk_cache_path = "./cache"             # Path to disk cache directory (default: ./cache)
+disk_cache_max_size = 1073741824        # Maximum disk cache size in bytes (default: 1GB)
 ```
+
+**Disk Cache Features:**
+- **Persistence**: Cached media survives server restarts
+- **Larger capacity**: Cache more data than what fits in RAM
+- **Nginx-like behavior**: Similar to nginx's `proxy_cache` functionality
+- **Automatic cleanup**: LRU eviction when max size is reached
+- **Atomic writes**: Prevents cache corruption from incomplete writes
+- **TTL support**: Respects the configured TTL for expiration
 
 ### Image Processing Configuration
 

@@ -4,4 +4,6 @@
 *~
 .DS_Store
 config.toml
+test_config.toml
+cache/
 
