@@ -33,20 +33,27 @@ pub struct CachedResponse {
 pub struct ResponseCache {
     cache: Cache<CacheKey, Arc<CachedResponse>>,
     disk_cache: Option<DiskCache>,
+    max_item_size: u64,
 }
 
 impl ResponseCache {
     /// Create a new response cache
-    pub fn new(max_capacity: u64, ttl: Duration, _max_item_size: u64) -> Self {
+    pub fn new(max_capacity: u64, ttl: Duration, max_item_size: u64) -> Self {
         let cache = Cache::builder()
             .max_capacity(max_capacity)
             .time_to_live(ttl)
             .initial_capacity(100)
+            .weigher(|_key, value: &Arc<CachedResponse>| -> u32 {
+                // Use the size of the cached data as the weight
+                // Cap at u32::MAX to avoid overflow
+                value.data.len().min(u32::MAX as usize) as u32
+            })
             .build();
 
         Self { 
             cache,
             disk_cache: None,
+            max_item_size,
         }
     }
 
@@ -54,17 +61,24 @@ impl ResponseCache {
     pub fn new_with_disk_cache(
         max_capacity: u64, 
         ttl: Duration, 
+        max_item_size: u64,
         disk_cache: DiskCache
     ) -> Self {
         let cache = Cache::builder()
             .max_capacity(max_capacity)
             .time_to_live(ttl)
             .initial_capacity(100)
+            .weigher(|_key, value: &Arc<CachedResponse>| -> u32 {
+                // Use the size of the cached data as the weight
+                // Cap at u32::MAX to avoid overflow
+                value.data.len().min(u32::MAX as usize) as u32
+            })
             .build();
 
         Self { 
             cache,
             disk_cache: Some(disk_cache),
+            max_item_size,
         }
     }
 
@@ -78,6 +92,22 @@ impl ResponseCache {
         // If not in memory and disk cache is enabled, check disk
         if let Some(disk_cache) = &self.disk_cache {
             if let Some((data, content_type)) = disk_cache.get(key).await {
+                // Check if the item size exceeds the max_item_size limit
+                let item_size = data.len() as u64;
+                if item_size > self.max_item_size {
+                    warn!(
+                        "Disk cache item size ({} bytes) exceeds max_item_size ({} bytes), not promoting to memory",
+                        item_size, self.max_item_size
+                    );
+                    // Still return the data from disk, just don't promote to memory
+                    let response = CachedResponse {
+                        data,
+                        content_type,
+                        upstream_headers: None,
+                    };
+                    return Some(Arc::new(response));
+                }
+
                 // Found in disk cache, promote to memory cache
                 let response = CachedResponse {
                     data,
@@ -95,6 +125,16 @@ impl ResponseCache {
 
     /// Store a response in the cache
     pub async fn put(&self, key: CacheKey, response: CachedResponse) {
+        // Check if the item size exceeds the max_item_size limit
+        let item_size = response.data.len() as u64;
+        if item_size > self.max_item_size {
+            warn!(
+                "Item size ({} bytes) exceeds max_item_size ({} bytes), skipping cache",
+                item_size, self.max_item_size
+            );
+            return;
+        }
+
         // Store in memory cache
         self.cache.insert(key.clone(), Arc::new(response.clone())).await;
 

@@ -434,8 +434,8 @@ mod tests {
     #[tokio::test]
     async fn test_disk_cache_eviction() {
         let temp_dir = TempDir::new().unwrap();
-        // Create cache with small max size (1KB)
-        let cache = DiskCache::new(temp_dir.path(), 1024, 3600).unwrap();
+        // Create cache with small max size (2KB to allow for metadata overhead)
+        let cache = DiskCache::new(temp_dir.path(), 2048, 3600).unwrap();
 
         // Add multiple entries that exceed the limit
         let data = Bytes::from(vec![0u8; 512]); // 512 bytes each

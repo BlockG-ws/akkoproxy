@@ -164,7 +164,7 @@ impl AppState {
                     ResponseCache::new_with_disk_cache(
                         config.cache.max_capacity,
                         Duration::from_secs(config.cache.ttl),
-                        
+                        config.cache.max_item_size,
                         disk_cache,
                     )
                 }
