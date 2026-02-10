@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 
 /// Deserialize a size that can be either a number (bytes) or a human-readable string like "10M", "1G"
-fn deserialize_size<'de, D>(deserializer: D) -> Result<u64, D::Error>
+fn deserialize_size<'de, D>(deserializer: D) -> std::result::Result<u64, D::Error>
 where
     D: Deserializer<'de>,
 {
